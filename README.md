@@ -18,6 +18,18 @@ A CLI tool for managing PostgreSQL databases, schemas, users, and permissions. B
 - **Interactive Menu**: Dynamic menu system that auto-discovers available commands
 - **Beautiful Output**: Styled output using gum (with fallback for basic terminals)
 
+## Quick Install
+
+Install `pgctl` with a single command (like nvm):
+
+```bash
+curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash
+```
+
+This will clone the repository to `~/.pgctl` and guide you through the installation. After installation, you can use `pgctl` from anywhere in your terminal.
+
+For more installation options, see [Installation Guide](docs/INSTALLATION.md).
+
 ## Prerequisites
 
 - **PostgreSQL client** (`psql`) installed and in your PATH
@@ -416,6 +428,7 @@ command -v gum
 ```
 postgres/
 ├── pgctl                     # Main CLI entry point
+├── install.sh               # Installation script (supports remote install)
 ├── setup.sh                 # Automated setup script (installs psql + gum)
 ├── lib/
 │   ├── common.sh            # Shared functions, gum wrappers
@@ -430,10 +443,11 @@ postgres/
 │   ├── test-schema.sh       # Schema tests
 │   ├── test-users.sh        # User tests
 │   └── test-permissions.sh  # Permission tests
+├── docs/
+│   ├── INSTALLATION.md      # Installation & setup guide
+│   └── CONTRIBUTING.md      # Contribution guidelines
 ├── config.env.example       # Example configuration
 ├── install-gum.sh           # Gum installation helper (legacy)
-├── SETUP_GUIDE.md           # Detailed setup instructions
-├── CONTRIBUTING.md          # Contribution guidelines
 ├── LICENSE                  # MIT License
 └── README.md                # This file
 ```
@@ -487,7 +501,7 @@ log_success() {
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+We welcome contributions! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for:
 - Development setup
 - Coding standards
 - Testing guidelines

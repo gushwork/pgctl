@@ -51,12 +51,12 @@ Before contributing, ensure you have:
 1. Fork the repository on GitHub
 2. Clone your fork locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/gw-scripts.git
+   git clone https://github.com/gushwork/pgctl.git
    cd gw-scripts/postgres
    ```
 3. Add the upstream remote:
    ```bash
-   git remote add upstream https://github.com/ORIGINAL_OWNER/gw-scripts.git
+   git remote add upstream https://github.com/gushwork/pgctl.git
    ```
 
 ## Development Setup

@@ -1,0 +1,197 @@
+name: AI Release Notes Enhancer
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to enhance (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  enhance-release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get tag name
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.release_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v4
+        with:
+          configuration: |
+            {
+              "template": "## 📝 Changes\n\n#{{CHANGELOG}}\n\n## 📊 Statistics\n\n- **Commits**: #{{COMMIT_COUNT}}\n- **Contributors**: #{{CONTRIBUTORS}}\n\n#{{RELEASE_DIFF}}",
+              "categories": [
+                {
+                  "title": "### 🎉 Features",
+                  "labels": ["feature", "feat", "feature request", "enhancement"]
+                },
+                {
+                  "title": "### 🐛 Bug Fixes",
+                  "labels": ["bug", "fix", "bugfix"]
+                },
+                {
+                  "title": "### 📚 Documentation",
+                  "labels": ["documentation", "docs"]
+                },
+                {
+                  "title": "### 🔧 Other Changes",
+                  "labels": []
+                }
+              ],
+              "label_extractor": [
+                {
+                  "pattern": "^(feat|feature)(\\(.+\\))?:",
+                  "target": "feature"
+                },
+                {
+                  "pattern": "^fix(\\(.+\\))?:",
+                  "target": "bug"
+                },
+                {
+                  "pattern": "^docs?(\\(.+\\))?:",
+                  "target": "documentation"
+                }
+              ]
+            }
+          toTag: ${{ steps.tag.outputs.tag }}
+          failOnError: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate AI-Enhanced Notes
+        id: ai_notes
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        with:
+          script: |
+            const changelog = process.env.CHANGELOG;
+            const apiKey = process.env.OPENAI_API_KEY;
+            const tag = process.env.TAG;
+            
+            if (!apiKey || !changelog) {
+              console.log('Skipping AI enhancement - missing API key or changelog');
+              return '';
+            }
+            
+            const prompt = `Create professional release notes for ${tag} of a PostgreSQL CLI management tool.
+            
+            Based on these changes:
+            ${changelog}
+            
+            Create release notes with:
+            1. Brief overview paragraph
+            2. Highlight key changes
+            3. Group changes by category with emojis
+            4. Keep it concise and user-friendly
+            5. Focus on user impact
+            
+            Format in clean Markdown.`;
+            
+            try {
+              const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                  model: 'gpt-4-turbo-preview',
+                  messages: [
+                    {
+                      role: 'system',
+                      content: 'You are a technical writer creating clear, professional release notes for a PostgreSQL CLI tool.'
+                    },
+                    {
+                      role: 'user',
+                      content: prompt
+                    }
+                  ],
+                  temperature: 0.7,
+                  max_tokens: 2000
+                })
+              });
+              
+              if (!response.ok) {
+                throw new Error(`OpenAI API error: ${response.status}`);
+              }
+              
+              const data = await response.json();
+              return data.choices?.[0]?.message?.content || '';
+            } catch (error) {
+              console.error('AI enhancement failed:', error.message);
+              return '';
+            }
+
+      - name: Update Release
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          AI_NOTES: ${{ steps.ai_notes.outputs.result }}
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            const aiNotes = process.env.AI_NOTES;
+            const changelog = process.env.CHANGELOG;
+            
+            const body = `${aiNotes || changelog}
+            
+            ---
+            
+            ## 🚀 Installation
+            
+            \`\`\`bash
+            git clone https://github.com/${context.repo.owner}/${context.repo.repo}.git
+            cd postgres
+            ./install.sh
+            \`\`\`
+            
+            ## 📖 Documentation
+            
+            - [README](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/README.md)
+            - [Installation Guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/docs/INSTALLATION.md)
+            - [Contributing](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/docs/CONTRIBUTING.md)`;
+            
+            try {
+              // Get the release
+              const { data: release } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: tag
+              });
+              
+              // Update it
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+                body: body
+              });
+              
+              console.log('✅ Release notes updated successfully');
+            } catch (error) {
+              console.error('Failed to update release:', error.message);
+              throw error;
+            }
