@@ -116,7 +116,8 @@ jobs:
             
             if (!apiKey || !changelog) {
               console.log('Skipping AI enhancement');
-              return '';
+              core.setOutput('enhanced', '');
+              return;
             }
             
             try {
@@ -144,10 +145,11 @@ jobs:
               });
               
               const data = await response.json();
-              return data.choices?.[0]?.message?.content || '';
+              const content = data.choices?.[0]?.message?.content || '';
+              core.setOutput('enhanced', content);
             } catch (error) {
               console.error('AI enhancement failed:', error);
-              return '';
+              core.setOutput('enhanced', '');
             }
 
       - name: Create Release
@@ -156,7 +158,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Release ${{ steps.tag.outputs.tag }}
           body: |
-            ${{ steps.ai_enhance.outputs.result || steps.changelog.outputs.changelog }}
+            ${{ steps.ai_enhance.outputs.enhanced || steps.changelog.outputs.changelog }}
             
             ## 🚀 Installation
             
@@ -174,38 +176,5 @@ jobs:
           draft: false
           prerelease: ${{ github.event.inputs.prerelease || false }}
           generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update CHANGELOG.md
-        run: |
-          # Create or update CHANGELOG.md
-          NOTES="${{ steps.ai_enhance.outputs.result || steps.changelog.outputs.changelog }}"
-          
-          if [ ! -f CHANGELOG.md ]; then
-            echo "# Changelog" > CHANGELOG.md
-            echo "" >> CHANGELOG.md
-          fi
-          
-          # Create temp file with new content
-          {
-            echo "## [${{ steps.tag.outputs.tag }}] - $(date +%Y-%m-%d)"
-            echo ""
-            echo "$NOTES"
-            echo ""
-            echo "---"
-            echo ""
-            cat CHANGELOG.md
-          } > CHANGELOG.tmp
-          
-          mv CHANGELOG.tmp CHANGELOG.md
-          echo "✅ CHANGELOG.md updated"
-
-      - name: Commit CHANGELOG
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: 'docs: update CHANGELOG for ${{ steps.tag.outputs.tag }}'
-          file_pattern: CHANGELOG.md
-          branch: main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
