@@ -225,7 +225,7 @@ create_schema() {
     
     echo ""
     
-    # Display summary
+    # Display success summary
     local summary="✓ Schema Setup Complete
 
 Database: $dbname
@@ -241,6 +241,19 @@ Status: Ready"
     else
         log_box "$summary"
     fi
+    
+    # Display credentials
+    display_credentials "CREDENTIALS" \
+        "Username|Password|Role" \
+        "$owner|$owner_pass|owner" \
+        "$migration|$migration_pass|migration" \
+        "$fullaccess|$fullaccess_pass|fullaccess" \
+        "$app|$app_pass|app" \
+        "$readonly|$readonly_pass|readonly"
+    
+    display_connection_example "$app" "$dbname"
+    
+    log_warning "Save these credentials securely. They will not be shown again!"
 }
 
 # =============================================================================

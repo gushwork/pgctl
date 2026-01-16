@@ -103,14 +103,15 @@ create_user_wizard() {
         return 1
     fi
     
-    # Get password
+    # Get password (allow empty for auto-generation)
     echo ""
     local password
-    password=$(prompt_password "Password for $username")
+    password=$(prompt_password "Password for $username (leave empty to auto-generate)")
     
+    # Generate password if empty
     if [[ -z "$password" ]]; then
-        log_error "Password cannot be empty"
-        return 1
+        password=$(generate_password)
+        log_info "Generated secure password for $username"
     fi
     
     # Show summary
@@ -198,6 +199,20 @@ Future objects: $(if $apply_future; then echo "Yes"; else echo "No"; fi)"
     
     echo ""
     log_success "User $username created successfully"
+    
+    # Display credentials
+    local db_list
+    db_list=$(echo "$target_dbs" | tr '\n' ';' | sed 's/;$//' | sed 's/;/; /g')
+    local first_db
+    first_db=$(echo "$target_dbs" | head -n 1)
+    
+    display_credentials "CREDENTIALS" \
+        "Username|Password|Role|Databases" \
+        "$username|$password|$role_type|$db_list"
+    
+    display_connection_example "$username" "$first_db"
+    
+    log_warning "Save these credentials securely. They will not be shown again!"
 }
 
 # =============================================================================

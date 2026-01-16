@@ -371,6 +371,11 @@ validate_user_names_length() {
 # Password Management
 # =============================================================================
 
+# Generate a secure 16-character alphanumeric password
+generate_password() {
+    LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
+}
+
 get_password() {
     local env_var="$1"
     local prompt="$2"
@@ -380,8 +385,13 @@ get_password() {
     password="${!env_var:-}"
     
     if [[ -z "$password" ]]; then
-        # Prompt for password
-        password=$(prompt_password "$prompt")
+        # Prompt for password (allow empty for auto-generation)
+        password=$(prompt_password "$prompt (leave empty to auto-generate)")
+    fi
+    
+    # If still empty, generate a secure password
+    if [[ -z "$password" ]]; then
+        password=$(generate_password)
     fi
     
     echo "$password"
@@ -470,6 +480,61 @@ list_schemas_query() {
 list_users_query() {
     psql_admin "SELECT rolname FROM pg_roles WHERE rolcanlogin = true ORDER BY rolname;" 2>/dev/null | \
         tail -n +3 | sed '$d' | sed '$d' | sed 's/^[ ]*//' | grep -v "^$"
+}
+
+# =============================================================================
+# Credentials Display Functions
+# =============================================================================
+
+# Display credentials summary in a formatted table
+# Usage: display_credentials "title" "header1|header2|..." "row1col1|row1col2|..." "row2col1|row2col2|..." ...
+# Note: Uses pipe (|) as separator to avoid conflicts with commas in data values
+display_credentials() {
+    local title="$1"
+    shift
+    local header="$1"
+    shift
+    local rows=("$@")
+    
+    echo ""
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum style --border double --padding "1 2" --border-foreground 11 "⚠ $title - SAVE THESE SECURELY ⚠"
+    else
+        echo "============================================"
+        echo "⚠ $title - SAVE THESE SECURELY ⚠"
+        echo "============================================"
+    fi
+    echo ""
+    
+    # Build table content
+    local table_content="$header"
+    for row in "${rows[@]}"; do
+        table_content+=$'\n'"$row"
+    done
+    
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        echo "$table_content" | gum table --separator "|"
+    else
+        # Plain text table formatting
+        echo "$header" | tr '|' '\t'
+        echo "----------------------------------------"
+        for row in "${rows[@]}"; do
+            echo "$row" | tr '|' '\t'
+        done
+    fi
+    echo ""
+}
+
+# Display connection example
+display_connection_example() {
+    local host="${PGHOST:-localhost}"
+    local port="${PGPORT:-5432}"
+    local username="$1"
+    local database="$2"
+    
+    echo "Connection Example:"
+    echo "  psql -h $host -p $port -U $username -d $database"
+    echo ""
 }
 
 # =============================================================================
