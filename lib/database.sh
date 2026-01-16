@@ -1,0 +1,352 @@
+#!/bin/bash
+
+# =============================================================================
+# Database Library for pgctl
+# =============================================================================
+# Functions for creating, deleting, and listing databases
+# =============================================================================
+
+# Prevent multiple sourcing
+[[ -n "${PGCTL_DATABASE_LOADED:-}" ]] && return
+PGCTL_DATABASE_LOADED=1
+
+# Source dependencies
+_DATABASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_DATABASE_DIR}/common.sh"
+source "${_DATABASE_DIR}/permissions.sh"
+
+# =============================================================================
+# Database Creation
+# =============================================================================
+
+# Create a database with 5 standard users
+create_database() {
+    local dbname="${1:-}"
+    
+    log_header "PostgreSQL Database Creation"
+    
+    # Check connection
+    if ! check_connection; then
+        return 1
+    fi
+    
+    # Get database name if not provided
+    if [[ -z "$dbname" ]]; then
+        dbname=$(prompt_input "Database name")
+    fi
+    
+    # Validate database name
+    if ! validate_database_name "$dbname"; then
+        return 1
+    fi
+    
+    # Validate user name lengths
+    if ! validate_user_names_length "$dbname"; then
+        log_warning "Would you like to continue with shorter name?"
+        if ! prompt_confirm "Continue anyway?"; then
+            return 1
+        fi
+    fi
+    
+    # Check if database already exists
+    if database_exists "$dbname"; then
+        log_error "Database '$dbname' already exists"
+        return 1
+    fi
+    
+    # Define user names
+    local owner="${dbname}_owner"
+    local migration="${dbname}_migration_user"
+    local fullaccess="${dbname}_fullaccess_user"
+    local app="${dbname}_app_user"
+    local readonly="${dbname}_readonly_user"
+    
+    # Get passwords
+    echo ""
+    local owner_pass
+    owner_pass=$(get_password "DB_OWNER_PASSWORD" "Owner password")
+    
+    local migration_pass
+    migration_pass=$(get_password "DB_MIGRATION_PASSWORD" "Migration user password")
+    
+    local fullaccess_pass
+    fullaccess_pass=$(get_password "DB_FULLACCESS_PASSWORD" "Full access user password")
+    
+    local app_pass
+    app_pass=$(get_password "DB_APP_PASSWORD" "App user password")
+    
+    local readonly_pass
+    readonly_pass=$(get_password "DB_READONLY_PASSWORD" "Read-only user password")
+    
+    echo ""
+    
+    # Create database
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Creating database $dbname..." -- \
+            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'CREATE DATABASE $dbname;' > /dev/null 2>&1"
+    else
+        echo -n "Creating database $dbname... "
+        psql_admin_quiet "CREATE DATABASE $dbname;"
+    fi
+    log_success "Database created successfully"
+    
+    # Create owner user
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Creating $owner..." -- \
+            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $owner WITH LOGIN PASSWORD '$owner_pass' CREATEDB CREATEROLE;\" > /dev/null 2>&1"
+    else
+        echo -n "Creating $owner... "
+        psql_admin_quiet "CREATE ROLE $owner WITH LOGIN PASSWORD '$owner_pass' CREATEDB CREATEROLE;"
+    fi
+    log_success "Database owner created"
+    
+    # Set database ownership
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Setting database ownership..." -- \
+            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'ALTER DATABASE $dbname OWNER TO $owner;' > /dev/null 2>&1"
+    else
+        echo -n "Setting database ownership... "
+        psql_admin_quiet "ALTER DATABASE $dbname OWNER TO $owner;"
+    fi
+    log_success "Ownership configured"
+    
+    # Create migration user
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Creating $migration..." -- \
+            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $migration WITH LOGIN PASSWORD '$migration_pass';\" > /dev/null 2>&1"
+    else
+        echo -n "Creating $migration... "
+        psql_admin_quiet "CREATE ROLE $migration WITH LOGIN PASSWORD '$migration_pass';"
+    fi
+    log_success "Migration user created"
+    
+    # Create fullaccess user
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Creating $fullaccess..." -- \
+            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $fullaccess WITH LOGIN PASSWORD '$fullaccess_pass';\" > /dev/null 2>&1"
+    else
+        echo -n "Creating $fullaccess... "
+        psql_admin_quiet "CREATE ROLE $fullaccess WITH LOGIN PASSWORD '$fullaccess_pass';"
+    fi
+    log_success "Full access user created"
+    
+    # Create app user
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Creating $app..." -- \
+            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $app WITH LOGIN PASSWORD '$app_pass';\" > /dev/null 2>&1"
+    else
+        echo -n "Creating $app... "
+        psql_admin_quiet "CREATE ROLE $app WITH LOGIN PASSWORD '$app_pass';"
+    fi
+    log_success "App user created"
+    
+    # Create readonly user
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Creating $readonly..." -- \
+            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $readonly WITH LOGIN PASSWORD '$readonly_pass';\" > /dev/null 2>&1"
+    else
+        echo -n "Creating $readonly... "
+        psql_admin_quiet "CREATE ROLE $readonly WITH LOGIN PASSWORD '$readonly_pass';"
+    fi
+    log_success "Read-only user created"
+    
+    # Configure permissions
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Configuring permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'
+                     grant_all_permissions '$dbname' '$owner' 'owner' 'public'
+                     grant_all_permissions '$dbname' '$migration' 'migration_user' 'public'
+                     grant_all_permissions '$dbname' '$fullaccess' 'fullaccess_user' 'public'
+                     grant_all_permissions '$dbname' '$app' 'app_user' 'public'
+                     grant_all_permissions '$dbname' '$readonly' 'readonly_user' 'public'"
+    else
+        echo -n "Configuring permissions... "
+        grant_all_permissions "$dbname" "$owner" "owner" "public"
+        grant_all_permissions "$dbname" "$migration" "migration_user" "public"
+        grant_all_permissions "$dbname" "$fullaccess" "fullaccess_user" "public"
+        grant_all_permissions "$dbname" "$app" "app_user" "public"
+        grant_all_permissions "$dbname" "$readonly" "readonly_user" "public"
+    fi
+    log_success "Permissions configured"
+    
+    # Configure default privileges for future objects
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Configuring default privileges..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'
+                     set_default_privileges_for_all '$dbname' '$dbname' 'public'"
+    else
+        echo -n "Configuring default privileges... "
+        set_default_privileges_for_all "$dbname" "$dbname" "public"
+    fi
+    log_success "Default privileges set for future objects"
+    
+    echo ""
+    
+    # Display summary
+    local summary="✓ Database Setup Complete
+
+Database: $dbname
+Owner: $owner
+Users created: 5
+Status: Ready"
+    
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum style --border rounded --padding "1 2" --border-foreground 10 "$summary"
+    else
+        log_box "$summary"
+    fi
+}
+
+# =============================================================================
+# Database Deletion
+# =============================================================================
+
+# Delete a database and its users
+delete_database() {
+    local dbname="${1:-}"
+    
+    log_header "Delete Database"
+    
+    # Check connection
+    if ! check_connection; then
+        return 1
+    fi
+    
+    # Get database name if not provided
+    if [[ -z "$dbname" ]]; then
+        local databases
+        databases=$(list_databases_query)
+        
+        if [[ -z "$databases" ]]; then
+            log_error "No databases found"
+            return 1
+        fi
+        
+        dbname=$(prompt_select "Select database to delete:" $databases)
+        
+        if [[ -z "$dbname" ]]; then
+            log_error "No database selected"
+            return 1
+        fi
+    fi
+    
+    # Check if database exists
+    if ! database_exists "$dbname"; then
+        log_error "Database '$dbname' does not exist"
+        return 1
+    fi
+    
+    # List users that will be deleted
+    local users=("${dbname}_owner" "${dbname}_migration_user" "${dbname}_fullaccess_user" "${dbname}_app_user" "${dbname}_readonly_user")
+    
+    log_warning "This will permanently delete:"
+    echo "  Database: $dbname"
+    echo "  Users:"
+    for user in "${users[@]}"; do
+        if user_exists "$user"; then
+            echo "    - $user"
+        fi
+    done
+    echo ""
+    
+    # Confirm deletion
+    if ! prompt_confirm "Are you sure you want to delete this database?"; then
+        log_info "Deletion cancelled"
+        return 0
+    fi
+    
+    # Terminate existing connections
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Terminating connections..." -- \
+            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbname' AND pid <> pg_backend_pid();\" > /dev/null 2>&1"
+    else
+        echo -n "Terminating connections... "
+        psql_admin_quiet "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbname' AND pid <> pg_backend_pid();"
+    fi
+    
+    # Delete database
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        gum spin --spinner dot --title "Deleting database $dbname..." -- \
+            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP DATABASE IF EXISTS $dbname;' > /dev/null 2>&1"
+    else
+        echo -n "Deleting database $dbname... "
+        psql_admin_quiet "DROP DATABASE IF EXISTS $dbname;"
+    fi
+    log_success "Database deleted"
+    
+    # Delete users
+    for user in "${users[@]}"; do
+        if user_exists "$user"; then
+            if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                gum spin --spinner dot --title "Deleting user $user..." -- \
+                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE IF EXISTS $user;' > /dev/null 2>&1"
+            else
+                echo -n "Deleting user $user... "
+                psql_admin_quiet "DROP ROLE IF EXISTS $user;"
+            fi
+            log_success "Deleted $user"
+        fi
+    done
+    
+    echo ""
+    log_success "Database and all associated users deleted successfully"
+}
+
+# =============================================================================
+# Database Listing
+# =============================================================================
+
+# List all databases
+list_databases() {
+    log_header "Available Databases"
+    
+    # Check connection
+    if ! check_connection; then
+        return 1
+    fi
+    
+    local sql="SELECT d.datname AS database,
+               pg_catalog.pg_get_userbyid(d.datdba) AS owner,
+               pg_catalog.pg_encoding_to_char(d.encoding) AS encoding
+               FROM pg_catalog.pg_database d
+               WHERE d.datistemplate = false
+               AND d.datname != 'postgres'
+               ORDER BY d.datname;"
+    
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        local result
+        result=$(psql_admin "$sql" 2>/dev/null)
+        echo "$result" | gum table
+    else
+        psql_admin "$sql"
+    fi
+}
+
+# =============================================================================
+# Command Wrappers for CLI
+# =============================================================================
+
+cmd_create_db() {
+    create_database "$@"
+}
+
+cmd_delete_db() {
+    delete_database "$@"
+}
+
+cmd_list_databases() {
+    list_databases "$@"
+}
+
+# =============================================================================
+# Register Commands
+# =============================================================================
+
+register_command "Create Database" "DATABASE MANAGEMENT" "cmd_create_db" \
+    "Create a new database with 5 standard users"
+
+register_command "Delete Database" "DATABASE MANAGEMENT" "cmd_delete_db" \
+    "Delete a database and all associated users"
+
+register_command "List Databases" "DATABASE MANAGEMENT" "cmd_list_databases" \
+    "List all available databases"
