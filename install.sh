@@ -5,7 +5,7 @@
 # =============================================================================
 # This script installs pgctl as a system-wide command
 # Can be run locally or remotely via:
-#   curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash
+#   curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash
 # =============================================================================
 
 set -e
@@ -273,10 +273,10 @@ ENVIRONMENT VARIABLES:
 
 EXAMPLES:
     # Remote installation (via curl)
-    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash
+    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash
 
     # Remote with specific options
-    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash -s -- --global
+    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash -s -- --global
 
     # Local installation (from cloned repo)
     $0 --global

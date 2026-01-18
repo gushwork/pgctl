@@ -25,7 +25,7 @@ Complete guide for installing and setting up pgctl on your system.
 Install pgctl with a single command:
 
 ```bash
-curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash
+curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash
 ```
 
 Then run the setup:
@@ -52,13 +52,13 @@ Install pgctl directly from GitHub using curl:
 
 ```bash
 # Interactive installation (shows menu)
-curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash
+curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash
 
 # Global installation (requires sudo)
-curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash -s -- --global
+curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash -s -- --global
 
 # User installation (no sudo required)
-curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash -s -- --user
+curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash -s -- --user
 ```
 
 This will:
@@ -73,13 +73,13 @@ Customize the installation with environment variables:
 
 ```bash
 # Custom installation directory
-PGCTL_DIR=~/tools/pgctl curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash
+PGCTL_DIR=~/tools/pgctl curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash
 
 # Fork or different repository
 PGCTL_REPO_URL=https://github.com/YOUR_FORK/pgctl.git curl -o- https://raw.githubusercontent.com/YOUR_FORK/pgctl/main/install.sh | bash
 
 # Specific branch
-PGCTL_REPO_BRANCH=develop curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash
+PGCTL_REPO_BRANCH=develop curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash
 ```
 
 **Environment Variables:**
@@ -350,7 +350,7 @@ The symlink automatically uses the updated version - no need to reinstall!
 ./install.sh --uninstall
 
 # Or run directly from remote
-curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash -s -- --uninstall
+curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash -s -- --uninstall
 ```
 
 ### Manual Uninstallation
@@ -495,7 +495,7 @@ For automated environments:
 
 ```bash
 # Non-interactive installation
-curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash -s -- --user
+curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/v0.0.2/install.sh | bash -s -- --user
 cd ~/.pgctl && ./setup.sh --skip-gum -y
 
 # Set configuration

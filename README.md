@@ -1,12 +1,6 @@
-<div align="center">
-
-![pgctl Cover](cover.jpeg)
-
 # pgctl - PostgreSQL Management Tool
 
 A CLI tool for managing PostgreSQL databases, schemas, users, and permissions. Built with [Charm Bracelet's gum](https://github.com/charmbracelet/gum) for interactive, glamorous shell scripts.
-
-</div>
 
 ## Features
 
@@ -18,45 +12,21 @@ A CLI tool for managing PostgreSQL databases, schemas, users, and permissions. B
 - **Interactive Menu**: Dynamic menu system that auto-discovers available commands
 - **Beautiful Output**: Styled output using gum (with fallback for basic terminals)
 
-## Quick Install
-
-Install `pgctl` with a single command (like nvm):
-
-```bash
-curl -o- https://raw.githubusercontent.com/gushwork/pgctl/main/install.sh | bash
-```
-
-This will clone the repository to `~/.pgctl` and guide you through the installation. After installation, you can use `pgctl` from anywhere in your terminal.
-
-For more installation options, see [Installation Guide](docs/INSTALLATION.md).
-
 ## Prerequisites
 
 - **PostgreSQL client** (`psql`) installed and in your PATH
 - **Bash 4.0+** (for associative arrays)
 - **gum** (optional but recommended for enhanced UX)
 
-## Quick Setup
+### Installing gum
 
-Run the automated setup script to install all dependencies:
+Run the included helper script:
 
 ```bash
-# Install everything (recommended)
-./postgres/setup.sh
-
-# Skip gum installation (install only psql)
-./postgres/setup.sh --skip-gum
-
-# Skip psql installation (install only gum)
-./postgres/setup.sh --skip-psql
-
-# Non-interactive mode
-./postgres/setup.sh -y
+./postgres/install-gum.sh
 ```
 
-### Manual Installation
-
-Or install dependencies manually:
+Or install manually:
 
 ```bash
 # macOS
@@ -100,13 +70,13 @@ export PGPASSWORD=your_admin_password
 
 pgctl creates 5 standardized users per database:
 
-| Role | Permissions | Use Case |
-|------|-------------|----------|
-| `{db}_owner` | CREATEDB, CREATEROLE, ALL privileges | Database administration |
-| `{db}_migration_user` | CREATE, ALTER, DROP on objects | Running migrations |
-| `{db}_fullaccess_user` | SELECT, INSERT, UPDATE, DELETE | Full CRUD operations |
-| `{db}_app_user` | SELECT, INSERT, UPDATE | Application (no DELETE) |
-| `{db}_readonly_user` | SELECT only | Reporting, analytics |
+| Role                   | Permissions                          | Use Case                |
+| ---------------------- | ------------------------------------ | ----------------------- |
+| `{db}_owner`           | CREATEDB, CREATEROLE, ALL privileges | Database administration |
+| `{db}_migration_user`  | CREATE, ALTER, DROP on objects       | Running migrations      |
+| `{db}_fullaccess_user` | SELECT, INSERT, UPDATE, DELETE       | Full CRUD operations    |
+| `{db}_app_user`        | SELECT, INSERT, UPDATE               | Application (no DELETE) |
+| `{db}_readonly_user`   | SELECT only                          | Reporting, analytics    |
 
 ### Schema-Specific Users
 
@@ -346,6 +316,7 @@ By default, all standard users are configured with `ALTER DEFAULT PRIVILEGES` so
 This ensures your application continues working after schema migrations without manual permission grants.
 
 For custom users, the wizard asks:
+
 - **Existing objects only**: Grant on current objects
 - **Future objects only**: Set up default privileges
 - **Both** (default): Grant on current AND set default privileges
@@ -401,20 +372,24 @@ command -v gum
 ## Security Best Practices
 
 1. **Never store passwords in config files**
+
    - Use environment variables: `export PGPASSWORD=...`
    - Or let pgctl prompt you securely
 
 2. **Use least-privilege principle**
+
    - Applications should use `app_user` (no DELETE)
    - Migrations use `migration_user`
    - Direct database access uses `readonly_user`
 
 3. **Rotate passwords regularly**
+
    ```bash
    ./pgctl change-password myapp_production_app_user
    ```
 
 4. **Audit permissions periodically**
+
    ```bash
    ./pgctl audit myapp_production
    ```
@@ -428,8 +403,6 @@ command -v gum
 ```
 postgres/
 ├── pgctl                     # Main CLI entry point
-├── install.sh               # Installation script (supports remote install)
-├── setup.sh                 # Automated setup script (installs psql + gum)
 ├── lib/
 │   ├── common.sh            # Shared functions, gum wrappers
 │   ├── database.sh          # Database operations
@@ -443,12 +416,8 @@ postgres/
 │   ├── test-schema.sh       # Schema tests
 │   ├── test-users.sh        # User tests
 │   └── test-permissions.sh  # Permission tests
-├── docs/
-│   ├── INSTALLATION.md      # Installation & setup guide
-│   └── CONTRIBUTING.md      # Contribution guidelines
 ├── config.env.example       # Example configuration
-├── install-gum.sh           # Gum installation helper (legacy)
-├── LICENSE                  # MIT License
+├── install-gum.sh           # Gum installation helper
 └── README.md                # This file
 ```
 
@@ -499,15 +468,6 @@ log_success() {
 }
 ```
 
-## Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for:
-- Development setup
-- Coding standards
-- Testing guidelines
-- Pull request process
-- How to report bugs and request features
-
 ## License
 
-MIT License - See [LICENSE](LICENSE) file for details.
+MIT License - See LICENSE file for details.

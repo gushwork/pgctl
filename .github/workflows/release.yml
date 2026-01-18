@@ -178,3 +178,6 @@ jobs:
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run latest-tag
+        uses: EndBug/latest-tag@latest
