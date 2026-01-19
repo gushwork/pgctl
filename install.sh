@@ -66,7 +66,7 @@ check_command() {
 }
 
 clone_repository() {
-    log_info "Cloning pgctl repository..."
+    log_info "Setting up pgctl repository..."
     
     # Check if git is installed
     if ! check_command git; then
@@ -74,27 +74,63 @@ clone_repository() {
         exit 1
     fi
     
-    # Remove existing directory if it exists
+    # Check if directory exists
     if [[ -d "$PGCTL_DIR" ]]; then
-        log_warning "Directory $PGCTL_DIR already exists."
-        read -p "Remove and reinstall? [y/N]: " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Removing existing installation..."
-            rm -rf "$PGCTL_DIR"
+        log_info "Directory $PGCTL_DIR already exists."
+        
+        # Check if it's a git repository
+        if [[ -d "$PGCTL_DIR/.git" ]]; then
+            log_info "Updating existing installation..."
+            cd "$PGCTL_DIR"
+            
+            # Fetch latest changes
+            if ! git fetch origin; then
+                log_error "Failed to fetch updates from remote repository"
+                exit 1
+            fi
+            
+            # Check if we're on the correct branch
+            current_branch=$(git rev-parse --abbrev-ref HEAD)
+            if [[ "$current_branch" != "$REPO_BRANCH" ]]; then
+                log_info "Switching to branch: $REPO_BRANCH"
+                if ! git checkout "$REPO_BRANCH"; then
+                    log_error "Failed to switch to branch $REPO_BRANCH"
+                    exit 1
+                fi
+            fi
+            
+            # Check for local changes
+            if ! git diff-index --quiet HEAD --; then
+                log_warning "Local changes detected in $PGCTL_DIR"
+                log_info "Attempting to stash local changes..."
+                git stash push -m "Auto-stash by installer on $(date)"
+            fi
+            
+            # Pull latest changes
+            if git pull origin "$REPO_BRANCH"; then
+                log_success "Repository updated successfully"
+            else
+                log_error "Failed to pull updates"
+                log_info "You may need to resolve conflicts manually in $PGCTL_DIR"
+                exit 1
+            fi
+            
+            cd - > /dev/null
         else
-            log_info "Using existing installation at $PGCTL_DIR"
-            return 0
+            # Directory exists but is not a git repository
+            log_error "Directory $PGCTL_DIR exists but is not a git repository."
+            log_error "Please remove it manually or choose a different location."
+            exit 1
         fi
-    fi
-    
-    # Clone the repository
-    log_info "Cloning from $REPO_URL (branch: $REPO_BRANCH)..."
-    if git clone --branch "$REPO_BRANCH" "$REPO_URL" "$PGCTL_DIR"; then
-        log_success "Repository cloned successfully"
     else
-        log_error "Failed to clone repository"
-        exit 1
+        # Directory doesn't exist - clone the repository
+        log_info "Cloning from $REPO_URL (branch: $REPO_BRANCH)..."
+        if git clone --branch "$REPO_BRANCH" "$REPO_URL" "$PGCTL_DIR"; then
+            log_success "Repository cloned successfully"
+        else
+            log_error "Failed to clone repository"
+            exit 1
+        fi
     fi
 }
 
@@ -293,7 +329,8 @@ NOTES:
     - Global installation makes pgctl available for all users
     - User installation only affects the current user
     - The pgctl directory must remain in its location (symlink is created)
-    - Updates: cd ~/.pgctl && git pull (for remote installations)
+    - Updates: Simply re-run the installation script to pull latest changes
+    - Installation is idempotent - safe to run multiple times
 
 EOF
 }
