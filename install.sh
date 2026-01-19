@@ -20,7 +20,7 @@ NC='\033[0m' # No Color
 # Default configuration
 PGCTL_DIR="${PGCTL_DIR:-$HOME/.pgctl}"
 REPO_URL="${PGCTL_REPO_URL:-https://github.com/gushwork/pgctl.git}"
-REPO_BRANCH="${PGCTL_REPO_BRANCH:-main}"
+REPO_BRANCH="${PGCTL_REPO_BRANCH:-master}"
 
 # Detect if running from local directory or piped from curl
 if [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
@@ -269,7 +269,7 @@ OPTIONS:
 ENVIRONMENT VARIABLES:
     PGCTL_DIR           Installation directory (default: ~/.pgctl)
     PGCTL_REPO_URL      Repository URL for remote installation
-    PGCTL_REPO_BRANCH   Repository branch (default: main)
+    PGCTL_REPO_BRANCH   Repository branch (default: master)
 
 EXAMPLES:
     # Remote installation (via curl)
