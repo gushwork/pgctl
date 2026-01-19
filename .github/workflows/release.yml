@@ -184,5 +184,6 @@ jobs:
         with:
           ref: latest
           description: Latest stable release
+          force-branch: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

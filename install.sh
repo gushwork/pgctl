@@ -5,7 +5,7 @@
 # =============================================================================
 # This script installs pgctl as a system-wide command
 # Can be run locally or remotely via:
-#   curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash
+#   curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/heads/latest/install.sh | bash
 # =============================================================================
 
 set -e
@@ -309,10 +309,10 @@ ENVIRONMENT VARIABLES:
 
 EXAMPLES:
     # Remote installation (via curl)
-    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash
+    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/heads/latest/install.sh | bash
 
     # Remote with specific options
-    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash -s -- --global
+    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/heads/latest/install.sh | bash -s -- --global
 
     # Local installation (from cloned repo)
     $0 --global
@@ -413,7 +413,7 @@ main() {
             log_warning "No installation method specified and stdin is not a terminal"
             log_info "Defaulting to user installation (~/.local/bin)"
             log_info "To use global installation, run:"
-            echo "    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash -s -- --global"
+            echo "    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/heads/latest/install.sh | bash -s -- --global"
             echo ""
             install_type="user"
         else
