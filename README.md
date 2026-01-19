@@ -152,16 +152,68 @@ pgctl audit <database_name>
 
 ### Testing
 
-```bash
-# Run test suite
-pgctl test --host localhost --port 5432 --user postgres
+pgctl includes a comprehensive test suite to verify functionality.
 
-# Test options:
-#   --host, -h     PostgreSQL host (default: localhost)
-#   --port, -p     PostgreSQL port (default: 5432)
-#   --user, -u     Admin username (default: postgres)
-#   --password, -P Admin password (prompts if not provided)
-#   --database, -d Test database name (default: pgctl_test)
+#### Basic Testing
+
+```bash
+# Run standard test suite (non-interactive, GUM disabled)
+./test.sh
+
+# Run with specific connection settings
+./test.sh --host localhost --port 5432 --user postgres -P mypassword
+
+# Keep test data for inspection
+./test.sh --no-cleanup
+
+# Show detailed output
+./test.sh --verbose
+```
+
+#### GUM Interface Testing
+
+The test suite includes special tests for the GUM (interactive UI) interface:
+
+```bash
+# Test with GUM interface enabled (requires gum installed)
+./test.sh --test-gum
+
+# Run all tests in both modes (GUM enabled and disabled)
+./test.sh --test-all
+
+# Interactive test runner with GUM
+./tests/test-runner.sh --test-gum
+```
+
+**Why test GUM separately?**
+- GUM runs commands in subshells that need special handling
+- Default tests disable GUM to avoid interactive prompts
+- `--test-gum` verifies no "command not found" errors occur
+- Ensures parity between GUM and non-GUM code paths
+- A prior bug (query functions not available in GUM's subshell, causing "command not found") was fixed by sourcing `common.sh` before running queries in `gum spin`
+
+#### Test Options
+
+```bash
+# Connection options:
+#   --host, -h      PostgreSQL host (default: localhost)
+#   --port, -p      PostgreSQL port (default: 5432)
+#   --user, -u      Admin username (default: postgres)
+#   --password, -P  Admin password (default: from config.env)
+#   --database, -d  Test database name (default: pgctl_test)
+
+# Test behavior:
+#   --no-cleanup    Keep test database after tests
+#   --verbose, -v   Show detailed output
+#   --test-gum      Enable GUM interface testing
+#   --test-all      Run tests with both GUM modes
+```
+
+#### Using pgctl test Command
+
+```bash
+# Via pgctl (uses tests/test-runner.sh)
+pgctl test --host localhost --port 5432 --user postgres
 ```
 
 ## Configuration
@@ -403,6 +455,7 @@ command -v gum
 ```
 postgres/
 ├── pgctl                     # Main CLI entry point
+├── test.sh                   # Non-interactive test runner
 ├── lib/
 │   ├── common.sh            # Shared functions, gum wrappers
 │   ├── database.sh          # Database operations
@@ -411,11 +464,13 @@ postgres/
 │   ├── permissions.sh       # Permission management
 │   └── menu.sh              # Dynamic menu generation
 ├── tests/
-│   ├── test-runner.sh       # Main test runner
+│   ├── test-runner.sh       # Interactive test runner
 │   ├── test-database.sh     # Database tests
 │   ├── test-schema.sh       # Schema tests
 │   ├── test-users.sh        # User tests
-│   └── test-permissions.sh  # Permission tests
+│   ├── test-permissions.sh  # Permission tests
+│   ├── test-gum-interface.sh # GUM interface tests
+│   └── test-multiselect.sh  # Multiselect tests
 ├── config.env.example       # Example configuration
 ├── install-gum.sh           # Gum installation helper
 └── README.md                # This file

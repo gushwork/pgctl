@@ -21,6 +21,9 @@ source "${LIB_DIR}/common.sh"
 # Test Configuration
 # =============================================================================
 
+# GUM testing mode (can be overridden by --test-gum flag)
+TEST_GUM_MODE="default"  # default, enabled, disabled
+
 # Default connection settings
 TEST_HOST="${PGHOST:-localhost}"
 TEST_PORT="${PGPORT:-5432}"
@@ -46,10 +49,14 @@ show_usage() {
     echo "  --user, -u        Admin username (default: postgres)"
     echo "  --password, -P    Admin password (prompts if not provided)"
     echo "  --database, -d    Test database name (default: pgctl_test)"
+    echo "  --test-gum        Force enable GUM interface testing"
+    echo "  --no-gum          Force disable GUM interface (non-interactive mode)"
     echo "  --help            Show this help message"
     echo ""
     echo "Example:"
     echo "  ./test-runner.sh --host localhost --port 5432 --user postgres"
+    echo "  ./test-runner.sh --test-gum    # Test with GUM interface enabled"
+    echo "  ./test-runner.sh --no-gum      # Test without GUM (faster, no UI)"
 }
 
 # =============================================================================
@@ -78,6 +85,14 @@ while [[ $# -gt 0 ]]; do
             TEST_DATABASE="$2"
             shift 2
             ;;
+        --test-gum)
+            TEST_GUM_MODE="enabled"
+            shift
+            ;;
+        --no-gum)
+            TEST_GUM_MODE="disabled"
+            shift
+            ;;
         --help)
             show_usage
             exit 0
@@ -94,6 +109,27 @@ done
 export PGHOST="$TEST_HOST"
 export PGPORT="$TEST_PORT"
 export PGADMIN="$TEST_USER"
+
+# Apply GUM mode settings
+case "$TEST_GUM_MODE" in
+    enabled)
+        # Force enable GUM (check if available first)
+        if ! command -v gum &> /dev/null; then
+            echo "Error: --test-gum specified but gum is not installed"
+            echo "Install gum first: brew install gum (or see docs/INSTALLATION.md)"
+            exit 1
+        fi
+        export GUM_AVAILABLE="true"
+        ;;
+    disabled)
+        # Force disable GUM
+        export GUM_AVAILABLE="false"
+        ;;
+    default|*)
+        # Use default detection from common.sh (already loaded)
+        # GUM_AVAILABLE is already set by common.sh
+        ;;
+esac
 
 # =============================================================================
 # Test Utilities
@@ -228,11 +264,17 @@ cleanup_test_env() {
         fi
     done
     
-    # Clean up custom test user
+    # Clean up custom test user from all databases
     if user_exists "test_custom_user"; then
-        psql_admin_quiet "REASSIGN OWNED BY test_custom_user TO $PGADMIN;" 2>/dev/null || true
-        psql_admin_quiet "DROP OWNED BY test_custom_user;" 2>/dev/null || true
-        psql_admin_quiet "DROP ROLE IF EXISTS test_custom_user;"
+        # Get all databases and clean privileges from each
+        local all_dbs
+        all_dbs=$(psql_admin "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname;" 2>/dev/null | tail -n +3 | sed '$d' | sed '$d' | tr -d ' ')
+        while IFS= read -r dbname; do
+            [[ -z "$dbname" ]] && continue
+            psql_admin_quiet "REASSIGN OWNED BY test_custom_user TO $PGADMIN;" "$dbname" 2>/dev/null || true
+            psql_admin_quiet "DROP OWNED BY test_custom_user;" "$dbname" 2>/dev/null || true
+        done <<< "$all_dbs"
+        psql_admin_quiet "DROP ROLE IF EXISTS test_custom_user;" 2>/dev/null || true
     fi
     
     log_success "Cleanup complete"
@@ -272,6 +314,7 @@ main() {
     log_info "Connection: ${TEST_HOST}:${TEST_PORT}"
     log_info "Admin user: ${TEST_USER}"
     log_info "Test database: ${TEST_DATABASE}"
+    log_info "GUM mode: ${GUM_AVAILABLE}"
     echo ""
     
     # Prompt for password if not set
@@ -307,6 +350,11 @@ main() {
     run_test_file "${TEST_DIR}/test-schema.sh" "Schema Tests"
     run_test_file "${TEST_DIR}/test-permissions.sh" "Permission Tests"
     run_test_file "${TEST_DIR}/test-multiselect.sh" "Multiselect Tests"
+    
+    # GUM interface tests (only run when GUM is enabled)
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        run_test_file "${TEST_DIR}/test-gum-interface.sh" "GUM Interface Tests"
+    fi
     
     echo ""
     echo ""

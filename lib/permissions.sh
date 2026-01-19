@@ -182,18 +182,25 @@ grant_all_permissions() {
     local role_type="$3"
     local schema="${4:-public}"
     
-    # Grant schema permissions
+    log_info "Granting $role_type permissions to $username..."
+    
+    # Schema permissions
+    echo "  → Schema access..."
     grant_schema_permissions "$dbname" "$username" "$role_type" "$schema" || return 1
     
-    # Grant table permissions
+    # Table permissions
+    echo "  → Table permissions..."
     grant_table_permissions "$dbname" "$username" "$role_type" "$schema" || return 1
     
-    # Grant sequence permissions
+    # Sequence permissions
+    echo "  → Sequence permissions..."
     grant_sequence_permissions "$dbname" "$username" "$role_type" "$schema" || return 1
     
-    # Grant function permissions
+    # Function permissions
+    echo "  → Function permissions..."
     grant_function_permissions "$dbname" "$username" "$role_type" "$schema" || return 1
     
+    log_success "All permissions granted to $username"
     return 0
 }
 
@@ -241,17 +248,27 @@ set_default_privileges_for_all() {
     local owner="${prefix}_owner"
     local migration="${prefix}_migration_user"
     
+    log_info "Configuring default privileges for future objects..."
+    
     # Permissions granted by owner
+    echo "  → Owner grants to migration_user..."
     set_default_privileges "$dbname" "$owner" "${prefix}_migration_user" "migration_user" "$schema" || return 1
+    echo "  → Owner grants to fullaccess_user..."
     set_default_privileges "$dbname" "$owner" "${prefix}_fullaccess_user" "fullaccess_user" "$schema" || return 1
+    echo "  → Owner grants to app_user..."
     set_default_privileges "$dbname" "$owner" "${prefix}_app_user" "app_user" "$schema" || return 1
+    echo "  → Owner grants to readonly_user..."
     set_default_privileges "$dbname" "$owner" "${prefix}_readonly_user" "readonly_user" "$schema" || return 1
     
     # Permissions granted by migration_user
+    echo "  → Migration user grants to fullaccess_user..."
     set_default_privileges "$dbname" "$migration" "${prefix}_fullaccess_user" "fullaccess_user" "$schema" || return 1
+    echo "  → Migration user grants to app_user..."
     set_default_privileges "$dbname" "$migration" "${prefix}_app_user" "app_user" "$schema" || return 1
+    echo "  → Migration user grants to readonly_user..."
     set_default_privileges "$dbname" "$migration" "${prefix}_readonly_user" "readonly_user" "$schema" || return 1
     
+    log_success "Default privileges configured"
     return 0
 }
 
@@ -333,7 +350,7 @@ cmd_grant_existing() {
     # Get database name(s) if not provided
     if [[ -z "$dbname" ]]; then
         local databases
-        databases=$(list_databases_query)
+        databases=$(list_with_loading "databases" "list_databases_query")
         
         if [[ -z "$databases" ]]; then
             log_error "No databases found"
@@ -350,8 +367,12 @@ cmd_grant_existing() {
         fi
         
         # Apply permissions to each selected database
+        local db_count=0
+        local db_total=$(echo "$selected_dbs" | wc -l)
         while IFS= read -r db; do
             [[ -z "$db" ]] && continue
+            ((db_count++))
+            log_info "Processing database $db_count of $db_total: $db"
             
             if ! database_exists "$db"; then
                 log_warning "Database '$db' does not exist, skipping"
@@ -360,7 +381,7 @@ cmd_grant_existing() {
             
             # Get list of users for this database
             local db_users
-            db_users=$(list_users_query | grep "^${db}_" || true)
+            db_users=$(list_with_loading "users" "list_users_query" | grep "^${db}_" || true)
             
             if [[ -z "$db_users" ]]; then
                 log_warning "No users found for database: $db, skipping"
@@ -397,7 +418,7 @@ cmd_grant_existing() {
         # Single database mode (CLI argument provided)
         # Get list of users for this database
         local db_users
-        db_users=$(list_users_query | grep "^${dbname}_" || true)
+        db_users=$(list_with_loading "users" "list_users_query" | grep "^${dbname}_" || true)
         
         if [[ -z "$db_users" ]]; then
             log_warning "No users found for database: $dbname"
@@ -443,7 +464,7 @@ cmd_audit() {
     # Get database name(s) if not provided
     if [[ -z "$dbname" ]]; then
         local databases
-        databases=$(list_databases_query)
+        databases=$(list_with_loading "databases" "list_databases_query")
         
         if [[ -z "$databases" ]]; then
             log_error "No databases found"
@@ -461,8 +482,12 @@ cmd_audit() {
         
         # Generate audit for each selected database
         local first=true
+        local db_count=0
+        local db_total=$(echo "$selected_dbs" | wc -l)
         while IFS= read -r db; do
             [[ -z "$db" ]] && continue
+            ((db_count++))
+            log_info "Auditing database $db_count of $db_total: $db"
             
             if ! database_exists "$db"; then
                 log_warning "Database '$db' does not exist, skipping"

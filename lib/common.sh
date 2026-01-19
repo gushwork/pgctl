@@ -482,6 +482,25 @@ list_users_query() {
         tail -n +3 | sed '$d' | sed '$d' | sed 's/^[ ]*//' | grep -v "^$"
 }
 
+# Execute a list query with loading indicator
+list_with_loading() {
+    local query_type="$1"  # "databases", "schemas", "users"
+    shift
+    local query_func="$*"
+    local result
+    
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        # Source common.sh to make query functions available in subshell
+        result=$(gum spin --spinner dot --title "Loading ${query_type}..." -- bash -c "source '${PGCTL_LIB_DIR}/common.sh'; $query_func")
+    else
+        echo -n "Loading ${query_type}... "
+        result=$($query_func)
+        echo "done"
+    fi
+    
+    echo "$result"
+}
+
 # =============================================================================
 # Credentials Display Functions
 # =============================================================================

@@ -23,9 +23,9 @@ fi
 # Source common library
 source "${LIB_DIR}/common.sh"
 
-# Disable gum for non-interactive testing
-# gum table and other interactive components can hang
-export GUM_AVAILABLE="false"
+# GUM testing mode (can be overridden by --test-gum or --test-all flags)
+# Default: disable gum for non-interactive testing
+TEST_GUM_MODE="disabled"  # disabled, enabled, or all
 
 # =============================================================================
 # Test Configuration
@@ -64,6 +64,8 @@ show_usage() {
     echo "  --database, -d    Test database name (default: pgctl_test)"
     echo "  --no-cleanup      Skip cleanup after tests"
     echo "  --verbose, -v     Show detailed output"
+    echo "  --test-gum        Enable GUM interface testing (requires gum installed)"
+    echo "  --test-all        Run tests with both GUM disabled and enabled"
     echo "  --help            Show this help message"
     echo ""
     echo "Environment variables:"
@@ -73,6 +75,8 @@ show_usage() {
     echo "  ./test.sh"
     echo "  ./test.sh --host localhost --port 5432 --user postgres -P mypassword"
     echo "  ./test.sh --no-cleanup --verbose"
+    echo "  ./test.sh --test-gum    # Test with GUM interface enabled"
+    echo "  ./test.sh --test-all    # Run all tests twice (with and without GUM)"
 }
 
 # =============================================================================
@@ -107,6 +111,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --verbose|-v)
             VERBOSE=true
+            shift
+            ;;
+        --test-gum)
+            TEST_GUM_MODE="enabled"
+            shift
+            ;;
+        --test-all)
+            TEST_GUM_MODE="all"
             shift
             ;;
         --help)
@@ -352,6 +364,7 @@ main() {
     log_info "Admin user: ${TEST_USER}"
     log_info "Test database: ${TEST_DATABASE}"
     log_info "Auto-cleanup: ${AUTO_CLEANUP}"
+    log_info "GUM mode: ${GUM_AVAILABLE}"
     echo ""
     
     # Test connection
@@ -388,9 +401,15 @@ main() {
     echo ""
     
     run_test_file "${TEST_DIR}/test-permissions.sh" "Permission Tests"
+    
+    # GUM interface tests (only run when GUM is enabled)
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        run_test_file "${TEST_DIR}/test-gum-interface.sh" "GUM Interface Tests"
+    fi
+    
     # TODO: Schema tests have more comprehensive tests but have interactive components
     # run_test_file "${TEST_DIR}/test-schema.sh" "Schema Tests"
-    # TODO: Multiselect tests may have interactive components
+    # TODO: Multiselect tests - delete_user tests implemented, others still placeholders
     # run_test_file "${TEST_DIR}/test-multiselect.sh" "Multiselect Tests"
     
     echo ""
@@ -435,6 +454,83 @@ Failed: $TESTS_FAILED"
     exit 0
 }
 
-# Run main
-# Pipe 'yes' to auto-answer any prompts with 'y'
-yes | main
+# =============================================================================
+# Test Mode Execution
+# =============================================================================
+
+run_tests_with_gum_mode() {
+    local gum_enabled="$1"
+    local mode_label="$2"
+    
+    export GUM_AVAILABLE="$gum_enabled"
+    
+    echo ""
+    echo "════════════════════════════════════════════════════════════════"
+    echo "  Running tests: $mode_label"
+    echo "════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    # Reset counters for this test run
+    TESTS_PASSED=0
+    TESTS_FAILED=0
+    TESTS_TOTAL=0
+    
+    # Run main in subshell to isolate each test run
+    (yes | main)
+    local exit_code=$?
+    
+    return $exit_code
+}
+
+# Execute based on test mode
+case "$TEST_GUM_MODE" in
+    enabled)
+        # Check if gum is available
+        if ! command -v gum &> /dev/null; then
+            echo "Error: --test-gum specified but gum is not installed"
+            echo "Install gum first: brew install gum (or see docs/INSTALLATION.md)"
+            exit 1
+        fi
+        run_tests_with_gum_mode "true" "GUM ENABLED"
+        ;;
+    
+    all)
+        # Check if gum is available
+        if ! command -v gum &> /dev/null; then
+            echo "Warning: gum is not installed, skipping GUM-enabled tests"
+            echo "Install gum to run full test suite: brew install gum"
+            echo ""
+            run_tests_with_gum_mode "false" "GUM DISABLED (only)"
+        else
+            # Run without GUM first
+            echo "Running test suite in both modes..."
+            echo ""
+            
+            run_tests_with_gum_mode "false" "GUM DISABLED"
+            no_gum_exit=$?
+            
+            # Run with GUM second
+            run_tests_with_gum_mode "true" "GUM ENABLED"
+            with_gum_exit=$?
+            
+            echo ""
+            echo "════════════════════════════════════════════════════════════════"
+            echo "  FINAL RESULTS"
+            echo "════════════════════════════════════════════════════════════════"
+            if [[ $no_gum_exit -eq 0 ]] && [[ $with_gum_exit -eq 0 ]]; then
+                echo "✓ All tests passed in both modes!"
+                exit 0
+            else
+                echo "✗ Some tests failed:"
+                [[ $no_gum_exit -ne 0 ]] && echo "  - GUM DISABLED mode: FAILED"
+                [[ $with_gum_exit -ne 0 ]] && echo "  - GUM ENABLED mode: FAILED"
+                exit 1
+            fi
+        fi
+        ;;
+    
+    disabled|*)
+        # Default: disable gum for non-interactive testing
+        run_tests_with_gum_mode "false" "GUM DISABLED (default)"
+        ;;
+esac

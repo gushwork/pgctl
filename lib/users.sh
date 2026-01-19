@@ -87,7 +87,7 @@ create_user_wizard() {
     
     # Get target database(s)
     local databases
-    databases=$(list_databases_query)
+    databases=$(list_with_loading "databases" "list_databases_query")
     
     if [[ -z "$databases" ]]; then
         log_error "No databases found"
@@ -149,8 +149,12 @@ Future objects: $(if $apply_future; then echo "Yes"; else echo "No"; fi)"
     log_success "User created"
     
     # Apply permissions to each database
+    local db_count=0
+    local db_total=$(echo "$target_dbs" | wc -l)
     while IFS= read -r dbname; do
         [[ -z "$dbname" ]] && continue
+        ((db_count++))
+        log_info "Configuring database $db_count of $db_total: $dbname"
         
         if [[ "$GUM_AVAILABLE" == "true" ]]; then
             gum spin --spinner dot --title "Granting permissions on $dbname..." -- \
@@ -234,7 +238,7 @@ view_user_permissions() {
     # Get username if not provided
     if [[ -z "$username" ]]; then
         local users
-        users=$(list_users_query)
+        users=$(list_with_loading "users" "list_users_query")
         
         if [[ -z "$users" ]]; then
             log_error "No users found"
@@ -252,7 +256,7 @@ view_user_permissions() {
     # Get database if not provided
     if [[ -z "$dbname" ]]; then
         local databases
-        databases=$(list_databases_query)
+        databases=$(list_with_loading "databases" "list_databases_query")
         
         if [[ -z "$databases" ]]; then
             log_error "No databases found"
@@ -471,7 +475,7 @@ change_user_password() {
     # Get username if not provided
     if [[ -z "$username" ]]; then
         local users
-        users=$(list_users_query)
+        users=$(list_with_loading "users" "list_users_query")
         
         if [[ -z "$users" ]]; then
             log_error "No users found"
@@ -522,6 +526,78 @@ change_user_password() {
     
     echo ""
     log_success "Password changed successfully for $username"
+    
+    # Display new credentials
+    display_credentials "NEW PASSWORD" \
+        "Username|Password" \
+        "$username|$password"
+    
+    log_warning "Save this password securely. It will not be shown again!"
+}
+
+# Helper function to get all databases for user cleanup
+_get_all_databases_for_cleanup() {
+    # Get all databases except templates and postgres
+    # Use sed to remove last 2 lines (cross-platform compatible)
+    psql_admin "SELECT datname FROM pg_database 
+                WHERE datistemplate = false 
+                AND datname != 'postgres' 
+                ORDER BY datname;" 2>/dev/null | tail -n +3 | sed '$d' | sed '$d' | tr -d ' '
+}
+
+# Helper function to clean user privileges from all databases
+_clean_user_from_all_databases() {
+    local username="$1"
+    
+    # Get all databases
+    local all_dbs
+    all_dbs=$(_get_all_databases_for_cleanup)
+    
+    # Clean privileges from each database
+    while IFS= read -r dbname; do
+        [[ -z "$dbname" ]] && continue
+        
+        # Skip if database doesn't exist
+        if ! database_exists "$dbname"; then
+            continue
+        fi
+        
+        # Revoke database-level privileges
+        psql_admin_quiet "REVOKE ALL PRIVILEGES ON DATABASE $dbname FROM $username;" 2>/dev/null || true
+        
+        # Revoke schema-level privileges
+        psql_admin_quiet "REVOKE ALL ON SCHEMA public FROM $username;" "$dbname" 2>/dev/null || true
+        
+        # Revoke all table/sequence/function privileges
+        psql_admin_quiet "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM $username;" "$dbname" 2>/dev/null || true
+        psql_admin_quiet "REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM $username;" "$dbname" 2>/dev/null || true
+        psql_admin_quiet "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM $username;" "$dbname" 2>/dev/null || true
+        
+        # Reassign owned objects and drop privileges
+        psql_admin_quiet "REASSIGN OWNED BY $username TO $PGADMIN;" "$dbname" 2>/dev/null || true
+        psql_admin_quiet "DROP OWNED BY $username;" "$dbname" 2>/dev/null || true
+    done <<< "$all_dbs"
+    
+    # Also clean from the postgres database
+    psql_admin_quiet "REVOKE ALL PRIVILEGES ON DATABASE postgres FROM $username;" 2>/dev/null || true
+    psql_admin_quiet "REVOKE ALL ON SCHEMA public FROM $username;" "postgres" 2>/dev/null || true
+    psql_admin_quiet "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM $username;" "postgres" 2>/dev/null || true
+    psql_admin_quiet "REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM $username;" "postgres" 2>/dev/null || true
+    psql_admin_quiet "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM $username;" "postgres" 2>/dev/null || true
+    psql_admin_quiet "REASSIGN OWNED BY $username TO $PGADMIN;" "postgres" 2>/dev/null || true
+    psql_admin_quiet "DROP OWNED BY $username;" "postgres" 2>/dev/null || true
+    
+    # Revoke all role memberships
+    local member_of
+    member_of=$(psql_admin "SELECT string_agg(roleid::regrole::text, ',') FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = '$username');" 2>/dev/null | tail -n +3 | head -n 1 | tr -d ' ')
+    
+    if [[ -n "$member_of" && "$member_of" != "" ]]; then
+        IFS=',' read -ra roles <<< "$member_of"
+        for role in "${roles[@]}"; do
+            [[ -z "$role" ]] && continue
+            psql_admin_quiet "REVOKE $role FROM $username;" 2>/dev/null || true
+        done
+    fi
 }
 
 # Delete user (supports multiselect)
@@ -538,7 +614,7 @@ delete_user() {
     # Get username(s) if not provided
     if [[ -z "$username" ]]; then
         local users
-        users=$(list_users_query)
+        users=$(list_with_loading "users" "list_users_query")
         
         if [[ -z "$users" ]]; then
             log_error "No users found"
@@ -602,6 +678,7 @@ delete_user() {
         fi
         
         # Delete each selected user
+        local deletion_errors=0
         while IFS= read -r user; do
             [[ -z "$user" ]] && continue
             
@@ -613,45 +690,49 @@ delete_user() {
             echo ""
             log_info "Deleting user: $user"
             
-            # Check for owned objects again
-            local owned_objects
-            owned_objects=$(psql_admin "SELECT COUNT(*) FROM pg_class WHERE relowner = (SELECT oid FROM pg_roles WHERE rolname = '$user');" 2>/dev/null | tail -n +3 | head -n 1 | tr -d ' ')
-            
-            if [[ "${owned_objects:-0}" -gt 0 ]]; then
-                # Reassign owned objects
-                if [[ "$GUM_AVAILABLE" == "true" ]]; then
-                    gum spin --spinner dot --title "Reassigning owned objects..." -- \
-                        bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'REASSIGN OWNED BY $user TO $PGADMIN;' > /dev/null 2>&1"
-                else
-                    echo -n "Reassigning owned objects... "
-                    psql_admin_quiet "REASSIGN OWNED BY $user TO $PGADMIN;"
-                fi
-                log_success "Objects reassigned"
-            fi
-            
-            # Drop owned (privileges, etc.)
+            # Clean privileges from all databases
             if [[ "$GUM_AVAILABLE" == "true" ]]; then
-                gum spin --spinner dot --title "Revoking privileges..." -- \
-                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP OWNED BY $user;' > /dev/null 2>&1"
+                gum spin --spinner dot --title "Cleaning privileges from all databases..." -- \
+                    bash -c "source '${PGCTL_LIB_DIR}/users.sh' && _clean_user_from_all_databases '$user'"
             else
-                echo -n "Revoking privileges... "
-                psql_admin_quiet "DROP OWNED BY $user;"
+                echo -n "Cleaning privileges from all databases... "
+                _clean_user_from_all_databases "$user"
+                echo "done"
             fi
             
-            # Delete user
+            # Now drop the user role
+            local drop_output
+            local drop_result
+            
             if [[ "$GUM_AVAILABLE" == "true" ]]; then
-                gum spin --spinner dot --title "Deleting user $user..." -- \
-                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE $user;' > /dev/null 2>&1"
+                drop_output=$(gum spin --spinner dot --title "Deleting user $user..." -- \
+                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE $user;' 2>&1")
+                drop_result=$?
             else
                 echo -n "Deleting user $user... "
-                psql_admin_quiet "DROP ROLE $user;"
+                drop_output=$(PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -c "DROP ROLE $user;" 2>&1)
+                drop_result=$?
             fi
             
-            log_success "User '$user' deleted"
+            if [[ $drop_result -eq 0 ]]; then
+                log_success "User '$user' deleted"
+            else
+                log_error "Failed to delete user '$user'"
+                # Show the actual error message
+                if [[ -n "$drop_output" ]]; then
+                    echo "  Error details: $drop_output" | grep -i "error" || echo "  $drop_output"
+                fi
+                ((deletion_errors++))
+            fi
         done <<< "$selected_users"
         
         echo ""
-        log_success "Selected users deleted successfully"
+        if [[ $deletion_errors -eq 0 ]]; then
+            log_success "All selected users deleted successfully"
+        else
+            log_warning "Completed with $deletion_errors error(s)"
+            return 1
+        fi
         
     else
         # Single user mode (CLI argument provided)
@@ -667,51 +748,54 @@ delete_user() {
         
         if [[ "${owned_objects:-0}" -gt 0 ]]; then
             log_warning "User '$username' owns $owned_objects objects"
-            log_warning "These objects must be reassigned or dropped before the user can be deleted"
-            
-            if ! prompt_confirm "Do you want to reassign objects to postgres and then delete?"; then
-                log_info "Deletion cancelled"
-                return 0
-            fi
-            
-            # Reassign owned objects
-            if [[ "$GUM_AVAILABLE" == "true" ]]; then
-                gum spin --spinner dot --title "Reassigning owned objects..." -- \
-                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'REASSIGN OWNED BY $username TO $PGADMIN;' > /dev/null 2>&1"
-            else
-                echo -n "Reassigning owned objects... "
-                psql_admin_quiet "REASSIGN OWNED BY $username TO $PGADMIN;"
-            fi
-            log_success "Objects reassigned"
+            log_warning "These objects will be reassigned to $PGADMIN before deletion"
         fi
         
-        log_warning "This will permanently delete user '$username'"
+        log_warning "This will permanently delete user '$username' and revoke all privileges across all databases"
         
         if ! prompt_confirm "Are you sure you want to delete this user?"; then
             log_info "Deletion cancelled"
             return 0
         fi
         
-        # Drop owned (privileges, etc.)
+        echo ""
+        
+        # Clean privileges from all databases
         if [[ "$GUM_AVAILABLE" == "true" ]]; then
-            gum spin --spinner dot --title "Revoking privileges..." -- \
-                bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP OWNED BY $username;' > /dev/null 2>&1"
+            gum spin --spinner dot --title "Cleaning privileges from all databases..." -- \
+                bash -c "source '${PGCTL_LIB_DIR}/users.sh' && _clean_user_from_all_databases '$username'"
         else
-            echo -n "Revoking privileges... "
-            psql_admin_quiet "DROP OWNED BY $username;"
+            echo -n "Cleaning privileges from all databases... "
+            _clean_user_from_all_databases "$username"
+            echo "done"
         fi
         
-        # Delete user
+        # Now drop the user role
+        local drop_output
+        local drop_result
+        
         if [[ "$GUM_AVAILABLE" == "true" ]]; then
-            gum spin --spinner dot --title "Deleting user $username..." -- \
-                bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE $username;' > /dev/null 2>&1"
+            drop_output=$(gum spin --spinner dot --title "Deleting user $username..." -- \
+                bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE $username;' 2>&1")
+            drop_result=$?
         else
             echo -n "Deleting user $username... "
-            psql_admin_quiet "DROP ROLE $username;"
+            drop_output=$(PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -c "DROP ROLE $username;" 2>&1)
+            drop_result=$?
         fi
         
-        echo ""
-        log_success "User '$username' deleted successfully"
+        if [[ $drop_result -eq 0 ]]; then
+            echo ""
+            log_success "User '$username' deleted successfully"
+        else
+            echo ""
+            log_error "Failed to delete user '$username'"
+            # Show the actual error message
+            if [[ -n "$drop_output" ]]; then
+                echo "  Error details: $drop_output" | grep -i "error" || echo "  $drop_output"
+            fi
+            return 1
+        fi
     fi
 }
 

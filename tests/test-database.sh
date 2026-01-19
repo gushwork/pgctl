@@ -108,13 +108,27 @@ test_duplicate_database() {
 test_list_databases() {
     log_info "Testing database listing..."
     
-    local result
-    result=$(list_databases 2>/dev/null)
-    
-    if [[ "$result" == *"$TEST_DATABASE"* ]]; then
-        test_pass "Test database appears in list"
+    # Skip gum table test in automated mode (gum table is interactive)
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        # Test the underlying query function instead of the interactive wrapper
+        local result
+        result=$(list_databases_query 2>/dev/null)
+        
+        if [[ "$result" == *"$TEST_DATABASE"* ]]; then
+            test_pass "Test database appears in list (via query)"
+        else
+            test_fail "Test database appears in list (via query)"
+        fi
     else
-        test_fail "Test database appears in list"
+        # Non-GUM mode: test the full function
+        local result
+        result=$(list_databases 2>/dev/null)
+        
+        if [[ "$result" == *"$TEST_DATABASE"* ]]; then
+            test_pass "Test database appears in list"
+        else
+            test_fail "Test database appears in list"
+        fi
     fi
 }
 

@@ -150,21 +150,29 @@ create_database() {
     fi
     log_success "Read-only user created"
     
-    # Configure permissions
+    # Configure permissions (per-user progress)
+    log_info "Configuring permissions for 5 users..."
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
-        gum spin --spinner dot --title "Configuring permissions..." -- \
-            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'
-                     grant_all_permissions '$dbname' '$owner' 'owner' 'public'
-                     grant_all_permissions '$dbname' '$migration' 'migration_user' 'public'
-                     grant_all_permissions '$dbname' '$fullaccess' 'fullaccess_user' 'public'
-                     grant_all_permissions '$dbname' '$app' 'app_user' 'public'
-                     grant_all_permissions '$dbname' '$readonly' 'readonly_user' 'public'"
+        gum spin --spinner dot --title "Granting owner permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$owner' 'owner' 'public'"
+        gum spin --spinner dot --title "Granting migration_user permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$migration' 'migration_user' 'public'"
+        gum spin --spinner dot --title "Granting fullaccess_user permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$fullaccess' 'fullaccess_user' 'public'"
+        gum spin --spinner dot --title "Granting app_user permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$app' 'app_user' 'public'"
+        gum spin --spinner dot --title "Granting readonly_user permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$readonly' 'readonly_user' 'public'"
     else
-        echo -n "Configuring permissions... "
+        echo "  → owner"
         grant_all_permissions "$dbname" "$owner" "owner" "public"
+        echo "  → migration_user"
         grant_all_permissions "$dbname" "$migration" "migration_user" "public"
+        echo "  → fullaccess_user"
         grant_all_permissions "$dbname" "$fullaccess" "fullaccess_user" "public"
+        echo "  → app_user"
         grant_all_permissions "$dbname" "$app" "app_user" "public"
+        echo "  → readonly_user"
         grant_all_permissions "$dbname" "$readonly" "readonly_user" "public"
     fi
     log_success "Permissions configured"
@@ -267,7 +275,7 @@ delete_database() {
     # Get database name(s) if not provided
     if [[ -z "$dbname" ]]; then
         local databases
-        databases=$(list_databases_query)
+        databases=$(list_with_loading "databases" "list_databases_query")
         
         if [[ -z "$databases" ]]; then
             log_error "No databases found"

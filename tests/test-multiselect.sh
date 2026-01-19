@@ -737,9 +737,111 @@ test_delete_user_multiselect() {
         return 1
     fi
     
-    log_info "delete_user multiselect test structure created (would test deleting multiple users)"
-    test_pass "delete_user multiselect test placeholder (RED)"
+    # Grant some privileges to users to test cleanup
+    psql_admin_quiet "GRANT CONNECT ON DATABASE ${TEST_DATABASE} TO $user1;" 2>/dev/null || true
+    psql_admin_quiet "GRANT USAGE ON SCHEMA public TO $user1;" "${TEST_DATABASE}" 2>/dev/null || true
+    psql_admin_quiet "GRANT CONNECT ON DATABASE ${TEST_DATABASE} TO $user3;" 2>/dev/null || true
+    psql_admin_quiet "GRANT USAGE ON SCHEMA public TO $user3;" "${TEST_DATABASE}" 2>/dev/null || true
     
+    # Override prompts to select user1 and user3 for deletion
+    prompt_select_multiple() {
+        echo -e "${user1}\n${user3}"
+    }
+    
+    prompt_confirm() {
+        return 0
+    }
+    
+    # Execute: Call delete_user with no args (triggers interactive mode)
+    # This should delete user1 and user3, leaving user2
+    delete_user ""
+    
+    # Verify: user1 and user3 should be gone, user2 should still exist
+    local test_passed=true
+    
+    if user_exists "$user1"; then
+        test_fail "delete_user multiselect: $user1 should be deleted but still exists"
+        test_passed=false
+    fi
+    
+    if user_exists "$user3"; then
+        test_fail "delete_user multiselect: $user3 should be deleted but still exists"
+        test_passed=false
+    fi
+    
+    if ! user_exists "$user2"; then
+        test_fail "delete_user multiselect: $user2 should NOT be deleted but is missing"
+        test_passed=false
+    fi
+    
+    if [[ "$test_passed" == "true" ]]; then
+        test_pass "delete_user multiselect deletes selected users only"
+    fi
+    
+    # Restore original functions
+    unset -f prompt_select_multiple
+    unset -f prompt_confirm
+    
+    # Cleanup remaining user
+    cleanup_all_multiselect_tests
+}
+
+test_delete_user_with_owned_objects() {
+    log_info "Testing delete_user multiselect with users owning objects..."
+    
+    # Setup: Create 2 test users
+    setup_multiselect_test_users 2 "test_delowner_"
+    
+    local user1="test_delowner_1"
+    local user2="test_delowner_2"
+    
+    # Create test database for ownership test
+    local test_db="test_delowner_db"
+    psql_admin_quiet "CREATE DATABASE $test_db;" 2>/dev/null || true
+    MULTISELECT_TEST_DBS+=("$test_db")
+    
+    # Grant user1 permissions and have them create a table (owned object)
+    psql_admin_quiet "GRANT ALL ON DATABASE $test_db TO $user1;" 2>/dev/null || true
+    psql_admin_quiet "GRANT ALL ON SCHEMA public TO $user1;" "$test_db" 2>/dev/null || true
+    
+    # Create a table owned by user1
+    psql_admin_quiet "ALTER TABLE IF EXISTS test_table OWNER TO $user1;" "$test_db" 2>/dev/null || true
+    PGPASSWORD="${PGPASSWORD}" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -d "$test_db" -c "CREATE TABLE IF NOT EXISTS test_table (id INT); ALTER TABLE test_table OWNER TO $user1;" > /dev/null 2>&1
+    
+    # Override prompts to select only user1 for deletion
+    prompt_select_multiple() {
+        echo "$user1"
+    }
+    
+    prompt_confirm() {
+        return 0
+    }
+    
+    # Execute: Delete user1 (who owns objects)
+    delete_user ""
+    
+    # Verify: user1 should be gone, user2 should remain
+    local test_passed=true
+    
+    if user_exists "$user1"; then
+        test_fail "delete_user multiselect: $user1 (with owned objects) should be deleted"
+        test_passed=false
+    fi
+    
+    if ! user_exists "$user2"; then
+        test_fail "delete_user multiselect: $user2 should NOT be deleted"
+        test_passed=false
+    fi
+    
+    if [[ "$test_passed" == "true" ]]; then
+        test_pass "delete_user multiselect handles users with owned objects correctly"
+    fi
+    
+    # Restore functions
+    unset -f prompt_select_multiple
+    unset -f prompt_confirm
+    
+    # Cleanup
     cleanup_all_multiselect_tests
 }
 
@@ -805,6 +907,7 @@ run_multiselect_tests() {
     
     # Run delete_user multiselect tests
     test_delete_user_multiselect
+    test_delete_user_with_owned_objects
     
     # Run cmd_grant_existing multiselect tests
     test_cmd_grant_existing_multiselect
@@ -817,3 +920,10 @@ run_multiselect_tests() {
     
     log_success "Multiselect tests completed"
 }
+
+# =============================================================================
+# Execute Tests
+# =============================================================================
+
+# Run all multiselect tests
+run_multiselect_tests

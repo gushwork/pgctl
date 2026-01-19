@@ -37,7 +37,14 @@ test_list_users() {
     log_info "Testing user listing..."
     
     local result
-    result=$(list_users "$TEST_DATABASE" 2>/dev/null)
+    # Skip gum table test in automated mode (gum table is interactive)
+    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+        # Test the underlying query function instead of the interactive wrapper
+        result=$(list_users_query 2>/dev/null)
+    else
+        # Non-GUM mode: test the full function
+        result=$(list_users "$TEST_DATABASE" 2>/dev/null)
+    fi
     
     # Check that standard users appear in list
     if [[ "$result" == *"${TEST_DATABASE}_owner"* ]]; then
@@ -147,6 +154,94 @@ test_user_privileges() {
     fi
 }
 
+test_delete_user_single() {
+    log_info "Testing single user deletion..."
+    
+    # Create a test user
+    local test_user="test_delete_single_user"
+    psql_admin_quiet "CREATE ROLE $test_user WITH LOGIN PASSWORD 'test_pass';" 2>/dev/null || true
+    
+    # Grant some privileges
+    psql_admin_quiet "GRANT CONNECT ON DATABASE ${TEST_DATABASE} TO $test_user;" 2>/dev/null || true
+    psql_admin_quiet "GRANT USAGE ON SCHEMA public TO $test_user;" "$TEST_DATABASE" 2>/dev/null || true
+    
+    # Verify user exists
+    if ! user_exists "$test_user"; then
+        test_fail "Test user was not created"
+        return 1
+    fi
+    
+    # Override prompt_confirm to auto-accept
+    prompt_confirm() {
+        return 0
+    }
+    
+    # Delete the user using the CLI mode (with username argument)
+    delete_user "$test_user"
+    
+    # Verify user is deleted
+    if user_exists "$test_user"; then
+        test_fail "User should be deleted but still exists"
+        # Cleanup
+        psql_admin_quiet "DROP ROLE IF EXISTS $test_user;" 2>/dev/null || true
+    else
+        test_pass "Single user deletion works correctly"
+    fi
+    
+    # Restore function
+    unset -f prompt_confirm
+}
+
+test_delete_user_with_privileges_across_dbs() {
+    log_info "Testing user deletion with privileges across multiple databases..."
+    
+    # Create a test user
+    local test_user="test_delete_multi_db_user"
+    psql_admin_quiet "CREATE ROLE $test_user WITH LOGIN PASSWORD 'test_pass';" 2>/dev/null || true
+    
+    # Create a second test database
+    local test_db2="pgctl_test_db2"
+    psql_admin_quiet "CREATE DATABASE $test_db2;" 2>/dev/null || true
+    
+    # Grant privileges on both databases
+    psql_admin_quiet "GRANT CONNECT ON DATABASE ${TEST_DATABASE} TO $test_user;" 2>/dev/null || true
+    psql_admin_quiet "GRANT USAGE ON SCHEMA public TO $test_user;" "$TEST_DATABASE" 2>/dev/null || true
+    psql_admin_quiet "GRANT CONNECT ON DATABASE $test_db2 TO $test_user;" 2>/dev/null || true
+    psql_admin_quiet "GRANT USAGE ON SCHEMA public TO $test_user;" "$test_db2" 2>/dev/null || true
+    
+    # Verify user exists
+    if ! user_exists "$test_user"; then
+        test_fail "Test user was not created"
+        # Cleanup
+        psql_admin_quiet "DROP DATABASE IF EXISTS $test_db2;" 2>/dev/null || true
+        return 1
+    fi
+    
+    # Override prompt_confirm to auto-accept
+    prompt_confirm() {
+        return 0
+    }
+    
+    # Delete the user
+    delete_user "$test_user"
+    
+    # Verify user is deleted
+    if user_exists "$test_user"; then
+        test_fail "User with privileges across multiple DBs should be deleted but still exists"
+        # Cleanup
+        psql_admin_quiet "DROP ROLE IF EXISTS $test_user;" 2>/dev/null || true
+    else
+        test_pass "User deletion with privileges across multiple databases works correctly"
+    fi
+    
+    # Cleanup test database
+    psql_admin_quiet "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$test_db2' AND pid <> pg_backend_pid();" 2>/dev/null || true
+    psql_admin_quiet "DROP DATABASE IF EXISTS $test_db2;" 2>/dev/null || true
+    
+    # Restore function
+    unset -f prompt_confirm
+}
+
 # =============================================================================
 # Run Tests
 # =============================================================================
@@ -156,3 +251,5 @@ test_list_users
 test_create_custom_user
 test_password_change
 test_user_privileges
+test_delete_user_single
+test_delete_user_with_privileges_across_dbs

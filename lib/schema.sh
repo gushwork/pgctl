@@ -102,21 +102,29 @@ _create_schema_in_db() {
     fi
     log_success "Schema readonly user created"
     
-    # Configure schema permissions
+    # Configure schema permissions (per-user progress)
+    log_info "Configuring schema permissions for 5 users..."
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
-        gum spin --spinner dot --title "Configuring schema permissions..." -- \
-            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'
-                     grant_all_permissions '$dbname' '$owner' 'owner' '$schemaname'
-                     grant_all_permissions '$dbname' '$migration' 'migration_user' '$schemaname'
-                     grant_all_permissions '$dbname' '$fullaccess' 'fullaccess_user' '$schemaname'
-                     grant_all_permissions '$dbname' '$app' 'app_user' '$schemaname'
-                     grant_all_permissions '$dbname' '$readonly' 'readonly_user' '$schemaname'"
+        gum spin --spinner dot --title "Granting owner permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$owner' 'owner' '$schemaname'"
+        gum spin --spinner dot --title "Granting migration_user permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$migration' 'migration_user' '$schemaname'"
+        gum spin --spinner dot --title "Granting fullaccess_user permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$fullaccess' 'fullaccess_user' '$schemaname'"
+        gum spin --spinner dot --title "Granting app_user permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$app' 'app_user' '$schemaname'"
+        gum spin --spinner dot --title "Granting readonly_user permissions..." -- \
+            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$readonly' 'readonly_user' '$schemaname'"
     else
-        echo -n "Configuring schema permissions... "
+        echo "  → owner"
         grant_all_permissions "$dbname" "$owner" "owner" "$schemaname"
+        echo "  → migration_user"
         grant_all_permissions "$dbname" "$migration" "migration_user" "$schemaname"
+        echo "  → fullaccess_user"
         grant_all_permissions "$dbname" "$fullaccess" "fullaccess_user" "$schemaname"
+        echo "  → app_user"
         grant_all_permissions "$dbname" "$app" "app_user" "$schemaname"
+        echo "  → readonly_user"
         grant_all_permissions "$dbname" "$readonly" "readonly_user" "$schemaname"
     fi
     log_success "Schema permissions configured"
@@ -196,7 +204,7 @@ create_schema() {
     # Get database name(s) if not provided
     if [[ -z "$dbname" ]]; then
         local databases
-        databases=$(list_databases_query)
+        databases=$(list_with_loading "databases" "list_databases_query")
         
         if [[ -z "$databases" ]]; then
             log_error "No databases found"
@@ -443,7 +451,7 @@ delete_schema() {
     # Get database name if not provided
     if [[ -z "$dbname" ]]; then
         local databases
-        databases=$(list_databases_query)
+        databases=$(list_with_loading "databases" "list_databases_query")
         
         if [[ -z "$databases" ]]; then
             log_error "No databases found"
@@ -461,7 +469,7 @@ delete_schema() {
     # Get schema name(s) if not provided
     if [[ -z "$schemaname" ]]; then
         local schemas
-        schemas=$(list_schemas_query "$dbname")
+        schemas=$(list_with_loading "schemas" "list_schemas_query '$dbname'")
         
         if [[ -z "$schemas" ]]; then
             log_error "No custom schemas found in database '$dbname'"
@@ -579,7 +587,7 @@ list_schemas() {
     # Get database name(s) if not provided
     if [[ -z "$dbname" ]]; then
         local databases
-        databases=$(list_databases_query)
+        databases=$(list_with_loading "databases" "list_databases_query")
         
         if [[ -z "$databases" ]]; then
             log_error "No databases found"
@@ -671,7 +679,7 @@ list_schema_users() {
     # Get database name if not provided
     if [[ -z "$dbname" ]]; then
         local databases
-        databases=$(list_databases_query)
+        databases=$(list_with_loading "databases" "list_databases_query")
         
         if [[ -z "$databases" ]]; then
             log_error "No databases found"
@@ -689,7 +697,7 @@ list_schema_users() {
     # Get schema name if not provided
     if [[ -z "$schemaname" ]]; then
         local schemas
-        schemas=$(list_schemas_query "$dbname")
+        schemas=$(list_with_loading "schemas" "list_schemas_query '$dbname'")
         
         if [[ -z "$schemas" ]]; then
             log_error "No custom schemas found in database '$dbname'"
@@ -747,7 +755,7 @@ grant_schema_access() {
     
     # Get database
     local databases
-    databases=$(list_databases_query)
+    databases=$(list_with_loading "databases" "list_databases_query")
     
     if [[ -z "$databases" ]]; then
         log_error "No databases found"
@@ -764,7 +772,7 @@ grant_schema_access() {
     
     # Get schema
     local schemas
-    schemas=$(list_schemas_query "$dbname")
+    schemas=$(list_with_loading "schemas" "list_schemas_query '$dbname'")
     
     if [[ -z "$schemas" ]]; then
         log_error "No custom schemas found"
@@ -781,7 +789,7 @@ grant_schema_access() {
     
     # Get user(s) - use multiselect
     local users
-    users=$(list_users_query)
+    users=$(list_with_loading "users" "list_users_query")
     
     if [[ -z "$users" ]]; then
         log_error "No users found"
@@ -841,7 +849,7 @@ add_schema_users() {
     # Get database name if not provided
     if [[ -z "$dbname" ]]; then
         local databases
-        databases=$(list_databases_query)
+        databases=$(list_with_loading "databases" "list_databases_query")
         
         if [[ -z "$databases" ]]; then
             log_error "No databases found"
@@ -865,7 +873,7 @@ add_schema_users() {
     # Get schema name(s) if not provided
     if [[ -z "$schemaname" ]]; then
         local schemas
-        schemas=$(list_schemas_query "$dbname")
+        schemas=$(list_with_loading "schemas" "list_schemas_query '$dbname'")
         
         if [[ -z "$schemas" ]]; then
             log_error "No custom schemas found in database '$dbname'"
@@ -881,7 +889,11 @@ add_schema_users() {
             return 1
         fi
         
+        # Collect credentials for all schemas
+        local -a all_credentials=()
+        
         # Process each selected schema
+        # Note: Using process substitution to avoid subshell issues with array modifications
         while IFS= read -r schema; do
             [[ -z "$schema" ]] && continue
             
@@ -892,9 +904,176 @@ add_schema_users() {
             
             echo ""
             log_info "Processing schema: $schema"
-            # Call the function recursively with the schema specified
-            add_schema_users "$dbname" "$schema"
-        done <<< "$selected_schemas"
+            
+            # Process this schema inline to collect credentials
+            local prefix="${dbname}_${schema}"
+            
+            # Validate user name lengths
+            if ! validate_user_names_length "$prefix"; then
+                log_warning "Schema user names will exceed PostgreSQL limits."
+                if ! prompt_confirm "Continue with $schema anyway?"; then
+                    log_info "Skipping schema $schema"
+                    continue
+                fi
+            fi
+            
+            # Define user names and their role types
+            local -a user_names=("${prefix}_owner" "${prefix}_migration_user" "${prefix}_fullaccess_user" "${prefix}_app_user" "${prefix}_readonly_user")
+            local -a role_types=("owner" "migration_user" "fullaccess_user" "app_user" "readonly_user")
+            local -a role_labels=("owner" "migration" "fullaccess" "app" "readonly")
+            local -a env_vars=("SCHEMA_OWNER_PASSWORD" "SCHEMA_MIGRATION_PASSWORD" "SCHEMA_FULLACCESS_PASSWORD" "SCHEMA_APP_PASSWORD" "SCHEMA_READONLY_PASSWORD")
+            local -a prompts=("Schema owner password" "Migration user password" "Full access user password" "App user password" "Read-only user password")
+            
+            # Track which users exist and which need to be created
+            local -a users_exist=()
+            local -a users_missing=()
+            local -a missing_indices=()
+            
+            echo "Checking existing users..."
+            
+            for i in "${!user_names[@]}"; do
+                local username="${user_names[$i]}"
+                if user_exists "$username"; then
+                    log_success "$username exists"
+                    users_exist+=("$username")
+                else
+                    log_warning "$username missing"
+                    users_missing+=("$username")
+                    missing_indices+=("$i")
+                fi
+            done
+            
+            echo ""
+            
+            # If there are missing users, get passwords and create them
+            if [[ ${#users_missing[@]} -gt 0 ]]; then
+                log_info "Creating ${#users_missing[@]} missing user(s)..."
+                echo ""
+                
+                # Get passwords for missing users
+                local -a passwords=()
+                for idx in "${missing_indices[@]}"; do
+                    local pass
+                    pass=$(get_password "${env_vars[$idx]}" "${prompts[$idx]}")
+                    passwords+=("$pass")
+                done
+                
+                echo ""
+                
+                # Create missing users
+                local pwd_idx=0
+                for idx in "${missing_indices[@]}"; do
+                    local username="${user_names[$idx]}"
+                    local password="${passwords[$pwd_idx]}"
+                    local role_label="${role_labels[$idx]}"
+                    
+                    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                        gum spin --spinner dot --title "Creating $username..." -- \
+                            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $username WITH LOGIN PASSWORD '$password';\" > /dev/null 2>&1"
+                    else
+                        echo -n "Creating $username... "
+                        psql_admin_quiet "CREATE ROLE $username WITH LOGIN PASSWORD '$password';"
+                    fi
+                    log_success "Created $username"
+                    
+                    # Store credentials for display
+                    all_credentials+=("$username|$password|$role_label")
+                    
+                    ((pwd_idx++))
+                done
+                
+                echo ""
+            else
+                log_success "All 5 standard users already exist"
+                echo ""
+            fi
+            
+            # Grant/verify permissions for ALL users (existing and new)
+            log_info "Configuring permissions for all users..."
+            for i in "${!user_names[@]}"; do
+                local user_label="${role_labels[$i]}"
+                if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                    gum spin --spinner dot --title "Granting ${user_label} permissions..." -- \
+                        bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '${user_names[$i]}' '${role_types[$i]}' '$schema' 2>/dev/null"
+                else
+                    echo "  → ${user_label}"
+                    grant_all_permissions "$dbname" "${user_names[$i]}" "${role_types[$i]}" "$schema" 2>/dev/null || true
+                fi
+            done
+            log_success "Schema permissions configured"
+            
+            # Revoke PUBLIC schema access (full isolation) - only for non-public schemas
+            if [[ "$schema" != "public" ]]; then
+                if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                    gum spin --spinner dot --title "Enforcing schema isolation..." -- \
+                        bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'
+                                 revoke_public_schema_access '$dbname' '$schema'
+                                 for username in ${user_names[*]}; do
+                                     revoke_all_permissions '$dbname' \"\$username\" 'public' 2>/dev/null
+                                 done"
+                else
+                    echo -n "Enforcing schema isolation... "
+                    revoke_public_schema_access "$dbname" "$schema"
+                    for username in "${user_names[@]}"; do
+                        revoke_all_permissions "$dbname" "$username" "public" 2>/dev/null || true
+                    done
+                fi
+                log_success "Schema isolation enforced (no PUBLIC access)"
+            else
+                log_info "Skipping schema isolation (using public schema)"
+            fi
+            
+            # Configure default privileges for future objects
+            if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                gum spin --spinner dot --title "Setting default privileges..." -- \
+                    bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'
+                             set_default_privileges_for_all '$dbname' '$prefix' '$schema'"
+            else
+                echo -n "Setting default privileges... "
+                set_default_privileges_for_all "$dbname" "$prefix" "$schema"
+            fi
+            log_success "Default privileges configured for future objects"
+            
+            echo ""
+            
+            # Display summary for this schema
+            local users_created=${#users_missing[@]}
+            local users_existing=${#users_exist[@]}
+            
+            local summary="✓ Schema Users Provisioned
+
+Database: $dbname
+Schema: $schema
+Users created: $users_created
+Users existing: $users_existing
+Total users: 5
+Isolation: Full (no PUBLIC/cross-schema)
+Default privileges: ✓ Enabled
+Status: Ready"
+            
+            if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                gum style --border rounded --padding "1 2" --border-foreground 10 "$summary"
+            else
+                log_box "$summary"
+            fi
+            
+        done < <(echo "$selected_schemas")
+        
+        echo ""
+        
+        # Display all credentials at the end
+        if [[ ${#all_credentials[@]} -gt 0 ]]; then
+            log_info "Displaying credentials for ${#all_credentials[@]} newly created user(s)..."
+            echo ""
+            display_credentials "NEW CREDENTIALS FOR ALL SCHEMAS" \
+                "Username|Password|Role" \
+                "${all_credentials[@]}"
+            echo ""
+            log_warning "Save these credentials securely. They will not be shown again!"
+        else
+            log_info "No new users created. All users already existed."
+            log_info "Permissions have been verified/repaired for all users."
+        fi
         
         return 0
     fi
@@ -997,23 +1176,16 @@ add_schema_users() {
     
     # Grant/verify permissions for ALL users (existing and new)
     log_info "Configuring permissions for all users..."
-    
-    if [[ "$GUM_AVAILABLE" == "true" ]]; then
-        gum spin --spinner dot --title "Granting schema permissions..." -- \
-            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'
-                     for i in 0 1 2 3 4; do
-                         grant_all_permissions '$dbname' '${user_names[0]}' '${role_types[0]}' '$schemaname' 2>/dev/null
-                         grant_all_permissions '$dbname' '${user_names[1]}' '${role_types[1]}' '$schemaname' 2>/dev/null
-                         grant_all_permissions '$dbname' '${user_names[2]}' '${role_types[2]}' '$schemaname' 2>/dev/null
-                         grant_all_permissions '$dbname' '${user_names[3]}' '${role_types[3]}' '$schemaname' 2>/dev/null
-                         grant_all_permissions '$dbname' '${user_names[4]}' '${role_types[4]}' '$schemaname' 2>/dev/null
-                     done"
-    else
-        echo -n "Granting schema permissions... "
-        for i in "${!user_names[@]}"; do
+    for i in "${!user_names[@]}"; do
+        local user_label="${role_labels[$i]}"
+        if [[ "$GUM_AVAILABLE" == "true" ]]; then
+            gum spin --spinner dot --title "Granting ${user_label} permissions..." -- \
+                bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '${user_names[$i]}' '${role_types[$i]}' '$schemaname' 2>/dev/null"
+        else
+            echo "  → ${user_label}"
             grant_all_permissions "$dbname" "${user_names[$i]}" "${role_types[$i]}" "$schemaname" 2>/dev/null || true
-        done
-    fi
+        fi
+    done
     log_success "Schema permissions configured"
     
     # Revoke PUBLIC schema access (full isolation) - only for non-public schemas
@@ -1073,13 +1245,14 @@ Status: Ready"
     
     # Display credentials for newly created users only
     if [[ ${#new_credentials[@]} -gt 0 ]]; then
+        log_info "Displaying credentials for ${#new_credentials[@]} newly created user(s)..."
         echo ""
         display_credentials "NEW CREDENTIALS" \
             "Username|Password|Role" \
             "${new_credentials[@]}"
-        
+        echo ""
         display_connection_example "${user_names[3]}" "$dbname"
-        
+        echo ""
         log_warning "Save these credentials securely. They will not be shown again!"
     else
         echo ""
