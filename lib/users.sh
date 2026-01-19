@@ -524,7 +524,7 @@ change_user_password() {
     log_success "Password changed successfully for $username"
 }
 
-# Delete user
+# Delete user (supports multiselect)
 delete_user() {
     local username="${1:-}"
     
@@ -535,7 +535,7 @@ delete_user() {
         return 1
     fi
     
-    # Get username if not provided
+    # Get username(s) if not provided
     if [[ -z "$username" ]]; then
         local users
         users=$(list_users_query)
@@ -545,71 +545,174 @@ delete_user() {
             return 1
         fi
         
-        username=$(prompt_select "Select user to delete:" $users)
+        # Use multiselect for interactive mode
+        local selected_users
+        selected_users=$(prompt_select_multiple "Select user(s) to delete:" $users)
         
-        if [[ -z "$username" ]]; then
-            log_error "No user selected"
+        if [[ -z "$selected_users" ]]; then
+            log_error "No users selected"
             return 1
         fi
-    fi
-    
-    # Verify user exists
-    if ! user_exists "$username"; then
-        log_error "User '$username' does not exist"
-        return 1
-    fi
-    
-    # Check for owned objects
-    local owned_objects
-    owned_objects=$(psql_admin "SELECT COUNT(*) FROM pg_class WHERE relowner = (SELECT oid FROM pg_roles WHERE rolname = '$username');" 2>/dev/null | tail -n +3 | head -n 1 | tr -d ' ')
-    
-    if [[ "${owned_objects:-0}" -gt 0 ]]; then
-        log_warning "User '$username' owns $owned_objects objects"
-        log_warning "These objects must be reassigned or dropped before the user can be deleted"
         
-        if ! prompt_confirm "Do you want to reassign objects to postgres and then delete?"; then
+        # Check which users own objects
+        local -a users_need_reassign=()
+        local -a users_clean=()
+        
+        while IFS= read -r user; do
+            [[ -z "$user" ]] && continue
+            
+            if ! user_exists "$user"; then
+                continue
+            fi
+            
+            local owned_objects
+            owned_objects=$(psql_admin "SELECT COUNT(*) FROM pg_class WHERE relowner = (SELECT oid FROM pg_roles WHERE rolname = '$user');" 2>/dev/null | tail -n +3 | head -n 1 | tr -d ' ')
+            
+            if [[ "${owned_objects:-0}" -gt 0 ]]; then
+                users_need_reassign+=("$user (owns $owned_objects objects)")
+            else
+                users_clean+=("$user")
+            fi
+        done <<< "$selected_users"
+        
+        # Build confirmation message
+        log_warning "This will permanently delete:"
+        echo ""
+        
+        if [[ ${#users_need_reassign[@]} -gt 0 ]]; then
+            echo "  Users with owned objects (will be reassigned to $PGADMIN):"
+            for user_info in "${users_need_reassign[@]}"; do
+                echo "    - $user_info"
+            done
+            echo ""
+        fi
+        
+        if [[ ${#users_clean[@]} -gt 0 ]]; then
+            echo "  Users without owned objects:"
+            for user in "${users_clean[@]}"; do
+                echo "    - $user"
+            done
+            echo ""
+        fi
+        
+        # Confirm deletion
+        if ! prompt_confirm "Are you sure you want to delete these user(s)?"; then
             log_info "Deletion cancelled"
             return 0
         fi
         
-        # Reassign owned objects
-        if [[ "$GUM_AVAILABLE" == "true" ]]; then
-            gum spin --spinner dot --title "Reassigning owned objects..." -- \
-                bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'REASSIGN OWNED BY $username TO $PGADMIN;' > /dev/null 2>&1"
-        else
-            echo -n "Reassigning owned objects... "
-            psql_admin_quiet "REASSIGN OWNED BY $username TO $PGADMIN;"
+        # Delete each selected user
+        while IFS= read -r user; do
+            [[ -z "$user" ]] && continue
+            
+            if ! user_exists "$user"; then
+                log_warning "User '$user' does not exist, skipping"
+                continue
+            fi
+            
+            echo ""
+            log_info "Deleting user: $user"
+            
+            # Check for owned objects again
+            local owned_objects
+            owned_objects=$(psql_admin "SELECT COUNT(*) FROM pg_class WHERE relowner = (SELECT oid FROM pg_roles WHERE rolname = '$user');" 2>/dev/null | tail -n +3 | head -n 1 | tr -d ' ')
+            
+            if [[ "${owned_objects:-0}" -gt 0 ]]; then
+                # Reassign owned objects
+                if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                    gum spin --spinner dot --title "Reassigning owned objects..." -- \
+                        bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'REASSIGN OWNED BY $user TO $PGADMIN;' > /dev/null 2>&1"
+                else
+                    echo -n "Reassigning owned objects... "
+                    psql_admin_quiet "REASSIGN OWNED BY $user TO $PGADMIN;"
+                fi
+                log_success "Objects reassigned"
+            fi
+            
+            # Drop owned (privileges, etc.)
+            if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                gum spin --spinner dot --title "Revoking privileges..." -- \
+                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP OWNED BY $user;' > /dev/null 2>&1"
+            else
+                echo -n "Revoking privileges... "
+                psql_admin_quiet "DROP OWNED BY $user;"
+            fi
+            
+            # Delete user
+            if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                gum spin --spinner dot --title "Deleting user $user..." -- \
+                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE $user;' > /dev/null 2>&1"
+            else
+                echo -n "Deleting user $user... "
+                psql_admin_quiet "DROP ROLE $user;"
+            fi
+            
+            log_success "User '$user' deleted"
+        done <<< "$selected_users"
+        
+        echo ""
+        log_success "Selected users deleted successfully"
+        
+    else
+        # Single user mode (CLI argument provided)
+        # Verify user exists
+        if ! user_exists "$username"; then
+            log_error "User '$username' does not exist"
+            return 1
         fi
-        log_success "Objects reassigned"
+        
+        # Check for owned objects
+        local owned_objects
+        owned_objects=$(psql_admin "SELECT COUNT(*) FROM pg_class WHERE relowner = (SELECT oid FROM pg_roles WHERE rolname = '$username');" 2>/dev/null | tail -n +3 | head -n 1 | tr -d ' ')
+        
+        if [[ "${owned_objects:-0}" -gt 0 ]]; then
+            log_warning "User '$username' owns $owned_objects objects"
+            log_warning "These objects must be reassigned or dropped before the user can be deleted"
+            
+            if ! prompt_confirm "Do you want to reassign objects to postgres and then delete?"; then
+                log_info "Deletion cancelled"
+                return 0
+            fi
+            
+            # Reassign owned objects
+            if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                gum spin --spinner dot --title "Reassigning owned objects..." -- \
+                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'REASSIGN OWNED BY $username TO $PGADMIN;' > /dev/null 2>&1"
+            else
+                echo -n "Reassigning owned objects... "
+                psql_admin_quiet "REASSIGN OWNED BY $username TO $PGADMIN;"
+            fi
+            log_success "Objects reassigned"
+        fi
+        
+        log_warning "This will permanently delete user '$username'"
+        
+        if ! prompt_confirm "Are you sure you want to delete this user?"; then
+            log_info "Deletion cancelled"
+            return 0
+        fi
+        
+        # Drop owned (privileges, etc.)
+        if [[ "$GUM_AVAILABLE" == "true" ]]; then
+            gum spin --spinner dot --title "Revoking privileges..." -- \
+                bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP OWNED BY $username;' > /dev/null 2>&1"
+        else
+            echo -n "Revoking privileges... "
+            psql_admin_quiet "DROP OWNED BY $username;"
+        fi
+        
+        # Delete user
+        if [[ "$GUM_AVAILABLE" == "true" ]]; then
+            gum spin --spinner dot --title "Deleting user $username..." -- \
+                bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE $username;' > /dev/null 2>&1"
+        else
+            echo -n "Deleting user $username... "
+            psql_admin_quiet "DROP ROLE $username;"
+        fi
+        
+        echo ""
+        log_success "User '$username' deleted successfully"
     fi
-    
-    log_warning "This will permanently delete user '$username'"
-    
-    if ! prompt_confirm "Are you sure you want to delete this user?"; then
-        log_info "Deletion cancelled"
-        return 0
-    fi
-    
-    # Drop owned (privileges, etc.)
-    if [[ "$GUM_AVAILABLE" == "true" ]]; then
-        gum spin --spinner dot --title "Revoking privileges..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP OWNED BY $username;' > /dev/null 2>&1"
-    else
-        echo -n "Revoking privileges... "
-        psql_admin_quiet "DROP OWNED BY $username;"
-    fi
-    
-    # Delete user
-    if [[ "$GUM_AVAILABLE" == "true" ]]; then
-        gum spin --spinner dot --title "Deleting user $username..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE $username;' > /dev/null 2>&1"
-    else
-        echo -n "Deleting user $username... "
-        psql_admin_quiet "DROP ROLE $username;"
-    fi
-    
-    echo ""
-    log_success "User '$username' deleted successfully"
 }
 
 # List users

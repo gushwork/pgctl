@@ -219,6 +219,7 @@ show_help() {
     echo "    delete-schema [db] [schema]  Delete schema and associated users"
     echo "    list-schemas [dbname]        List schemas in database"
     echo "    grant-schema-access          Grant user access to a schema"
+    echo "    add-schema-users [db] [s]    Add 5 standard users to existing schema"
     echo ""
     
     # USER MANAGEMENT

@@ -27,8 +27,9 @@ test_create_schema() {
     export SCHEMA_APP_PASSWORD="test_schema_app_pass"
     export SCHEMA_READONLY_PASSWORD="test_schema_readonly_pass"
     
-    # Create schema
-    create_schema "$TEST_DATABASE" "$test_schema" > /dev/null 2>&1
+    # Create schema  
+    # Note: Not redirecting output to avoid hanging issues with table formatters
+    create_schema "$TEST_DATABASE" "$test_schema" &> /tmp/test_schema_output.txt
     local result=$?
     
     if [[ $result -eq 0 ]]; then

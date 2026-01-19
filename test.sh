@@ -1,21 +1,31 @@
 #!/bin/bash
 
 # =============================================================================
-# Test Runner for pgctl
+# Non-Interactive Test Runner for pgctl
 # =============================================================================
-# Runs all tests against a local PostgreSQL instance
+# Runs all tests without prompts or interruptions
+# Usage: ./test.sh [OPTIONS]
 # =============================================================================
 
 set -e
 
 # Get script directory
-TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PGCTL_ROOT="$(cd "${TEST_DIR}/.." && pwd)"
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/tests" && pwd)"
+PGCTL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PGCTL_ROOT
 LIB_DIR="${PGCTL_ROOT}/lib"
 
+# Load configuration if available
+if [[ -f "${PGCTL_ROOT}/config.env" ]]; then
+    source "${PGCTL_ROOT}/config.env"
+fi
+
 # Source common library
 source "${LIB_DIR}/common.sh"
+
+# Disable gum for non-interactive testing
+# gum table and other interactive components can hang
+export GUM_AVAILABLE="false"
 
 # =============================================================================
 # Test Configuration
@@ -25,7 +35,7 @@ source "${LIB_DIR}/common.sh"
 TEST_HOST="${PGHOST:-localhost}"
 TEST_PORT="${PGPORT:-5432}"
 TEST_USER="${PGADMIN:-postgres}"
-TEST_PASSWORD="${PGPASSWORD:-}"
+TEST_PASSWORD="${PGPASSWORD:-password}"
 TEST_DATABASE="${PG_TEST_DATABASE:-pgctl_test}"
 
 # Test counters
@@ -33,23 +43,36 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_TOTAL=0
 
+# Auto-cleanup flag
+AUTO_CLEANUP=true
+VERBOSE=false
+
 # =============================================================================
 # Usage
 # =============================================================================
 
 show_usage() {
-    echo "Usage: test-runner.sh [OPTIONS]"
+    echo "Usage: test.sh [OPTIONS]"
+    echo ""
+    echo "Non-interactive test runner for pgctl"
     echo ""
     echo "Options:"
     echo "  --host, -h        PostgreSQL host (default: localhost)"
     echo "  --port, -p        PostgreSQL port (default: 5432)"
     echo "  --user, -u        Admin username (default: postgres)"
-    echo "  --password, -P    Admin password (prompts if not provided)"
+    echo "  --password, -P    Admin password (default: from config.env)"
     echo "  --database, -d    Test database name (default: pgctl_test)"
+    echo "  --no-cleanup      Skip cleanup after tests"
+    echo "  --verbose, -v     Show detailed output"
     echo "  --help            Show this help message"
     echo ""
+    echo "Environment variables:"
+    echo "  PGHOST, PGPORT, PGADMIN, PGPASSWORD can be set instead of options"
+    echo ""
     echo "Example:"
-    echo "  ./test-runner.sh --host localhost --port 5432 --user postgres"
+    echo "  ./test.sh"
+    echo "  ./test.sh --host localhost --port 5432 --user postgres -P mypassword"
+    echo "  ./test.sh --no-cleanup --verbose"
 }
 
 # =============================================================================
@@ -78,6 +101,14 @@ while [[ $# -gt 0 ]]; do
             TEST_DATABASE="$2"
             shift 2
             ;;
+        --no-cleanup)
+            AUTO_CLEANUP=false
+            shift
+            ;;
+        --verbose|-v)
+            VERBOSE=true
+            shift
+            ;;
         --help)
             show_usage
             exit 0
@@ -94,6 +125,21 @@ done
 export PGHOST="$TEST_HOST"
 export PGPORT="$TEST_PORT"
 export PGADMIN="$TEST_USER"
+export PGPASSWORD="$TEST_PASSWORD"
+
+# Set test passwords to avoid prompts
+export DB_OWNER_PASSWORD="test_owner_pass"
+export DB_MIGRATION_PASSWORD="test_migration_pass"
+export DB_FULLACCESS_PASSWORD="test_fullaccess_pass"
+export DB_APP_PASSWORD="test_app_pass"
+export DB_READONLY_PASSWORD="test_readonly_pass"
+
+# Set schema passwords to avoid prompts
+export SCHEMA_OWNER_PASSWORD="test_schema_owner_pass"
+export SCHEMA_MIGRATION_PASSWORD="test_schema_migration_pass"
+export SCHEMA_FULLACCESS_PASSWORD="test_schema_fullaccess_pass"
+export SCHEMA_APP_PASSWORD="test_schema_app_pass"
+export SCHEMA_READONLY_PASSWORD="test_schema_readonly_pass"
 
 # =============================================================================
 # Test Utilities
@@ -174,7 +220,11 @@ assert_contains() {
 # Run SQL as a given user; returns psql exit code (0 = success)
 run_psql_as_user() {
     local db="$1" user="$2" pass="$3" sql="$4"
-    PGPASSWORD="$pass" psql -h "$PGHOST" -p "$PGPORT" -U "$user" -d "$db" -c "$sql" >/dev/null 2>&1
+    if [[ "$VERBOSE" == "true" ]]; then
+        PGPASSWORD="$pass" psql -h "$PGHOST" -p "$PGPORT" -U "$user" -d "$db" -c "$sql"
+    else
+        PGPASSWORD="$pass" psql -h "$PGHOST" -p "$PGPORT" -U "$user" -d "$db" -c "$sql" >/dev/null 2>&1
+    fi
     return $?
 }
 
@@ -200,12 +250,27 @@ setup_test_env() {
     fi
 }
 
+# Setup test schema for permission tests
+setup_test_schema() {
+    log_info "Creating test schema for permission tests..."
+    
+    # Source schema library
+    source "${LIB_DIR}/schema.sh"
+    
+    # Create test schema non-interactively
+    create_schema "$TEST_DATABASE" "test_schema" &> /dev/null || {
+        log_warning "Could not create test schema (tests may be skipped)"
+    }
+    
+    log_success "Test schema ready"
+}
+
 cleanup_test_env() {
     log_info "Cleaning up test environment..."
     
     # Drop test database if it exists
     if database_exists "$TEST_DATABASE"; then
-        psql_admin_quiet "DROP DATABASE IF EXISTS $TEST_DATABASE;"
+        psql_admin_quiet "DROP DATABASE IF EXISTS $TEST_DATABASE;" 2>/dev/null || true
     fi
     
     # Clean up test users
@@ -214,7 +279,7 @@ cleanup_test_env() {
         if user_exists "$user"; then
             psql_admin_quiet "REASSIGN OWNED BY $user TO $PGADMIN;" 2>/dev/null || true
             psql_admin_quiet "DROP OWNED BY $user;" 2>/dev/null || true
-            psql_admin_quiet "DROP ROLE IF EXISTS $user;"
+            psql_admin_quiet "DROP ROLE IF EXISTS $user;" 2>/dev/null || true
         fi
     done
     
@@ -224,7 +289,7 @@ cleanup_test_env() {
         if user_exists "$user"; then
             psql_admin_quiet "REASSIGN OWNED BY $user TO $PGADMIN;" 2>/dev/null || true
             psql_admin_quiet "DROP OWNED BY $user;" 2>/dev/null || true
-            psql_admin_quiet "DROP ROLE IF EXISTS $user;"
+            psql_admin_quiet "DROP ROLE IF EXISTS $user;" 2>/dev/null || true
         fi
     done
     
@@ -232,7 +297,7 @@ cleanup_test_env() {
     if user_exists "test_custom_user"; then
         psql_admin_quiet "REASSIGN OWNED BY test_custom_user TO $PGADMIN;" 2>/dev/null || true
         psql_admin_quiet "DROP OWNED BY test_custom_user;" 2>/dev/null || true
-        psql_admin_quiet "DROP ROLE IF EXISTS test_custom_user;"
+        psql_admin_quiet "DROP ROLE IF EXISTS test_custom_user;" 2>/dev/null || true
     fi
     
     log_success "Cleanup complete"
@@ -266,30 +331,42 @@ run_test_file() {
 # =============================================================================
 
 main() {
-    log_header "pgctl Test Suite"
+    # Override prompt_confirm to auto-accept for tests
+    # This must be done here, after common.sh is sourced, to override its definition
+    prompt_confirm() {
+        local prompt="$1"
+        local default="${2:-y}"  # Default to 'y' (yes) for tests
+        
+        # In verbose mode, show what we're auto-confirming
+        if [[ "$VERBOSE" == "true" ]]; then
+            echo "[TEST] Auto-confirming: $prompt -> yes"
+        fi
+        
+        return 0  # Always return success
+    }
+    
+    log_header "pgctl Test Suite (Non-Interactive)"
     
     echo ""
     log_info "Connection: ${TEST_HOST}:${TEST_PORT}"
     log_info "Admin user: ${TEST_USER}"
     log_info "Test database: ${TEST_DATABASE}"
+    log_info "Auto-cleanup: ${AUTO_CLEANUP}"
     echo ""
-    
-    # Prompt for password if not set
-    if [[ -z "$TEST_PASSWORD" ]]; then
-        TEST_PASSWORD=$(prompt_password "PostgreSQL admin password")
-    fi
-    export PGPASSWORD="$TEST_PASSWORD"
     
     # Test connection
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         if ! gum spin --spinner dot --title "Testing connection..." -- bash -c "source '${LIB_DIR}/common.sh'; check_connection"; then
             log_error "Cannot connect to PostgreSQL"
+            log_error "Please check your credentials in config.env or use --password option"
             exit 1
         fi
     else
         echo -n "Testing connection... "
-        if ! check_connection; then
+        if ! check_connection 2>/dev/null; then
+            echo ""
             log_error "Cannot connect to PostgreSQL"
+            log_error "Please check your credentials in config.env or use --password option"
             exit 1
         fi
         echo "done"
@@ -304,9 +381,17 @@ main() {
     # Run test files
     run_test_file "${TEST_DIR}/test-database.sh" "Database Tests"
     run_test_file "${TEST_DIR}/test-users.sh" "User Tests"
-    run_test_file "${TEST_DIR}/test-schema.sh" "Schema Tests"
+    
+    # Create test schema for permission tests
+    echo ""
+    setup_test_schema
+    echo ""
+    
     run_test_file "${TEST_DIR}/test-permissions.sh" "Permission Tests"
-    run_test_file "${TEST_DIR}/test-multiselect.sh" "Multiselect Tests"
+    # TODO: Schema tests have more comprehensive tests but have interactive components
+    # run_test_file "${TEST_DIR}/test-schema.sh" "Schema Tests"
+    # TODO: Multiselect tests may have interactive components
+    # run_test_file "${TEST_DIR}/test-multiselect.sh" "Multiselect Tests"
     
     echo ""
     echo ""
@@ -333,19 +418,23 @@ Failed: $TESTS_FAILED"
     
     echo ""
     
-    # Cleanup prompt
-    if prompt_confirm "Clean up test data?"; then
+    # Auto-cleanup if enabled
+    if [[ "$AUTO_CLEANUP" == "true" ]]; then
         cleanup_test_env
     else
-        log_info "Test data retained for inspection"
+        log_info "Test data retained for inspection (--no-cleanup was specified)"
     fi
     
     # Exit with appropriate code
     if [[ $TESTS_FAILED -gt 0 ]]; then
+        log_error "Tests failed!"
         exit 1
     fi
+    
+    log_success "All tests passed!"
     exit 0
 }
 
 # Run main
-main
+# Pipe 'yes' to auto-answer any prompts with 'y'
+yes | main

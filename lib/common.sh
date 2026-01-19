@@ -472,7 +472,7 @@ list_databases_query() {
 # Get list of schemas in database
 list_schemas_query() {
     local dbname="$1"
-    psql_admin "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') ORDER BY schema_name;" "$dbname" 2>/dev/null | \
+    psql_admin "SELECT nspname FROM pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND nspname NOT LIKE 'pg_%' ORDER BY nspname;" "$dbname" 2>/dev/null | \
         tail -n +3 | sed '$d' | sed '$d' | sed 's/^[ ]*//' | grep -v "^$"
 }
 
@@ -506,22 +506,46 @@ display_credentials() {
     fi
     echo ""
     
-    # Build table content
-    local table_content="$header"
-    for row in "${rows[@]}"; do
-        table_content+=$'\n'"$row"
+    # Always use plain text table for credentials (more reliable and readable)
+    # Header
+    IFS='|' read -ra header_cols <<< "$header"
+    local col_widths=()
+    
+    # Calculate max width for each column
+    for i in "${!header_cols[@]}"; do
+        col_widths[$i]=${#header_cols[$i]}
     done
     
-    if [[ "$GUM_AVAILABLE" == "true" ]]; then
-        echo "$table_content" | gum table --separator "|"
-    else
-        # Plain text table formatting
-        echo "$header" | tr '|' '\t'
-        echo "----------------------------------------"
-        for row in "${rows[@]}"; do
-            echo "$row" | tr '|' '\t'
+    for row in "${rows[@]}"; do
+        IFS='|' read -ra row_cols <<< "$row"
+        for i in "${!row_cols[@]}"; do
+            local len=${#row_cols[$i]}
+            if [[ $len -gt ${col_widths[$i]:-0} ]]; then
+                col_widths[$i]=$len
+            fi
         done
-    fi
+    done
+    
+    # Print header
+    local separator_line=""
+    for i in "${!header_cols[@]}"; do
+        local width=${col_widths[$i]}
+        printf "%-${width}s  " "${header_cols[$i]}"
+        separator_line+=$(printf '%*s' "$width" "" | tr ' ' '-')
+        separator_line+="  "
+    done
+    echo ""
+    echo "$separator_line"
+    
+    # Print rows
+    for row in "${rows[@]}"; do
+        IFS='|' read -ra row_cols <<< "$row"
+        for i in "${!row_cols[@]}"; do
+            local width=${col_widths[$i]}
+            printf "%-${width}s  " "${row_cols[$i]}"
+        done
+        echo ""
+    done
     echo ""
 }
 

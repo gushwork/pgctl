@@ -214,66 +214,16 @@ Status: Ready"
 # Database Deletion
 # =============================================================================
 
-# Delete a database and its users
-delete_database() {
-    local dbname="${1:-}"
-    
-    log_header "Delete Database"
-    
-    # Check connection
-    if ! check_connection; then
-        return 1
-    fi
-    
-    # Get database name if not provided
-    if [[ -z "$dbname" ]]; then
-        local databases
-        databases=$(list_databases_query)
-        
-        if [[ -z "$databases" ]]; then
-            log_error "No databases found"
-            return 1
-        fi
-        
-        dbname=$(prompt_select "Select database to delete:" $databases)
-        
-        if [[ -z "$dbname" ]]; then
-            log_error "No database selected"
-            return 1
-        fi
-    fi
-    
-    # Check if database exists
-    if ! database_exists "$dbname"; then
-        log_error "Database '$dbname' does not exist"
-        return 1
-    fi
-    
-    # List users that will be deleted
-    local users=("${dbname}_owner" "${dbname}_migration_user" "${dbname}_fullaccess_user" "${dbname}_app_user" "${dbname}_readonly_user")
-    
-    log_warning "This will permanently delete:"
-    echo "  Database: $dbname"
-    echo "  Users:"
-    for user in "${users[@]}"; do
-        if user_exists "$user"; then
-            echo "    - $user"
-        fi
-    done
-    echo ""
-    
-    # Confirm deletion
-    if ! prompt_confirm "Are you sure you want to delete this database?"; then
-        log_info "Deletion cancelled"
-        return 0
-    fi
+# Helper: Delete a single database and its users
+_delete_one_database() {
+    local dbname="$1"
     
     # Terminate existing connections
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
-        gum spin --spinner dot --title "Terminating connections..." -- \
+        gum spin --spinner dot --title "Terminating connections to $dbname..." -- \
             bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbname' AND pid <> pg_backend_pid();\" > /dev/null 2>&1"
     else
-        echo -n "Terminating connections... "
+        echo -n "Terminating connections to $dbname... "
         psql_admin_quiet "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbname' AND pid <> pg_backend_pid();"
     fi
     
@@ -285,9 +235,10 @@ delete_database() {
         echo -n "Deleting database $dbname... "
         psql_admin_quiet "DROP DATABASE IF EXISTS $dbname;"
     fi
-    log_success "Database deleted"
+    log_success "Database $dbname deleted"
     
     # Delete users
+    local users=("${dbname}_owner" "${dbname}_migration_user" "${dbname}_fullaccess_user" "${dbname}_app_user" "${dbname}_readonly_user")
     for user in "${users[@]}"; do
         if user_exists "$user"; then
             if [[ "$GUM_AVAILABLE" == "true" ]]; then
@@ -300,9 +251,115 @@ delete_database() {
             log_success "Deleted $user"
         fi
     done
+}
+
+# Delete a database and its users (supports multiselect)
+delete_database() {
+    local dbname="${1:-}"
     
-    echo ""
-    log_success "Database and all associated users deleted successfully"
+    log_header "Delete Database"
+    
+    # Check connection
+    if ! check_connection; then
+        return 1
+    fi
+    
+    # Get database name(s) if not provided
+    if [[ -z "$dbname" ]]; then
+        local databases
+        databases=$(list_databases_query)
+        
+        if [[ -z "$databases" ]]; then
+            log_error "No databases found"
+            return 1
+        fi
+        
+        # Use multiselect for interactive mode
+        local selected_dbs
+        selected_dbs=$(prompt_select_multiple "Select database(s) to delete:" $databases)
+        
+        if [[ -z "$selected_dbs" ]]; then
+            log_error "No databases selected"
+            return 1
+        fi
+        
+        # Build confirmation message
+        log_warning "This will permanently delete:"
+        echo ""
+        
+        while IFS= read -r db; do
+            [[ -z "$db" ]] && continue
+            
+            if ! database_exists "$db"; then
+                continue
+            fi
+            
+            echo "  Database: $db"
+            echo "  Users:"
+            local users=("${db}_owner" "${db}_migration_user" "${db}_fullaccess_user" "${db}_app_user" "${db}_readonly_user")
+            for user in "${users[@]}"; do
+                if user_exists "$user"; then
+                    echo "    - $user"
+                fi
+            done
+            echo ""
+        done <<< "$selected_dbs"
+        
+        # Confirm deletion
+        if ! prompt_confirm "Are you sure you want to delete these database(s)?"; then
+            log_info "Deletion cancelled"
+            return 0
+        fi
+        
+        # Delete each selected database
+        while IFS= read -r db; do
+            [[ -z "$db" ]] && continue
+            
+            if ! database_exists "$db"; then
+                log_warning "Database '$db' does not exist, skipping"
+                continue
+            fi
+            
+            echo ""
+            log_info "Deleting database: $db"
+            _delete_one_database "$db"
+        done <<< "$selected_dbs"
+        
+        echo ""
+        log_success "Selected databases and associated users deleted successfully"
+        
+    else
+        # Single database mode (CLI argument provided)
+        # Check if database exists
+        if ! database_exists "$dbname"; then
+            log_error "Database '$dbname' does not exist"
+            return 1
+        fi
+        
+        # List users that will be deleted
+        local users=("${dbname}_owner" "${dbname}_migration_user" "${dbname}_fullaccess_user" "${dbname}_app_user" "${dbname}_readonly_user")
+        
+        log_warning "This will permanently delete:"
+        echo "  Database: $dbname"
+        echo "  Users:"
+        for user in "${users[@]}"; do
+            if user_exists "$user"; then
+                echo "    - $user"
+            fi
+        done
+        echo ""
+        
+        # Confirm deletion
+        if ! prompt_confirm "Are you sure you want to delete this database?"; then
+            log_info "Deletion cancelled"
+            return 0
+        fi
+        
+        _delete_one_database "$dbname"
+        
+        echo ""
+        log_success "Database and all associated users deleted successfully"
+    fi
 }
 
 # =============================================================================

@@ -319,7 +319,7 @@ get_user_schema_permissions() {
 # Interactive Permission Commands
 # =============================================================================
 
-# Grant permissions to existing objects (interactive)
+# Grant permissions to existing objects (interactive, supports multiselect databases)
 cmd_grant_existing() {
     local dbname="${1:-}"
     
@@ -330,7 +330,7 @@ cmd_grant_existing() {
         return 1
     fi
     
-    # Get database name if not provided
+    # Get database name(s) if not provided
     if [[ -z "$dbname" ]]; then
         local databases
         databases=$(list_databases_query)
@@ -340,48 +340,96 @@ cmd_grant_existing() {
             return 1
         fi
         
-        dbname=$(prompt_select "Select database:" $databases)
+        # Use multiselect for interactive mode
+        local selected_dbs
+        selected_dbs=$(prompt_select_multiple "Select database(s):" $databases)
         
-        if [[ -z "$dbname" ]]; then
-            log_error "No database selected"
+        if [[ -z "$selected_dbs" ]]; then
+            log_error "No databases selected"
             return 1
         fi
-    fi
-    
-    # Get list of users for this database
-    local db_users
-    db_users=$(list_users_query | grep "^${dbname}_" || true)
-    
-    if [[ -z "$db_users" ]]; then
-        log_warning "No users found for database: $dbname"
-        return 1
-    fi
-    
-    log_info "Applying permissions to existing objects in $dbname..."
-    
-    local prefix="$dbname"
-    local roles="owner migration_user fullaccess_user app_user readonly_user"
-    
-    for role in $roles; do
-        local username="${prefix}_${role}"
         
-        if user_exists "$username"; then
-            if [[ "$GUM_AVAILABLE" == "true" ]]; then
-                gum spin --spinner dot --title "Granting permissions to $username..." -- \
-                    bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$username' '$role' 'public'"
-            else
-                echo -n "Granting permissions to $username... "
-                grant_all_permissions "$dbname" "$username" "$role" "public"
-                echo "done"
+        # Apply permissions to each selected database
+        while IFS= read -r db; do
+            [[ -z "$db" ]] && continue
+            
+            if ! database_exists "$db"; then
+                log_warning "Database '$db' does not exist, skipping"
+                continue
             fi
-            log_success "Permissions granted to $username"
+            
+            # Get list of users for this database
+            local db_users
+            db_users=$(list_users_query | grep "^${db}_" || true)
+            
+            if [[ -z "$db_users" ]]; then
+                log_warning "No users found for database: $db, skipping"
+                continue
+            fi
+            
+            echo ""
+            log_info "Applying permissions to existing objects in $db..."
+            
+            local prefix="$db"
+            local roles="owner migration_user fullaccess_user app_user readonly_user"
+            
+            for role in $roles; do
+                local username="${prefix}_${role}"
+                
+                if user_exists "$username"; then
+                    if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                        gum spin --spinner dot --title "Granting permissions to $username..." -- \
+                            bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$db' '$username' '$role' 'public'"
+                    else
+                        echo -n "Granting permissions to $username... "
+                        grant_all_permissions "$db" "$username" "$role" "public"
+                        echo "done"
+                    fi
+                    log_success "Permissions granted to $username"
+                fi
+            done
+        done <<< "$selected_dbs"
+        
+        echo ""
+        log_success "All permissions applied to existing objects in selected databases"
+        
+    else
+        # Single database mode (CLI argument provided)
+        # Get list of users for this database
+        local db_users
+        db_users=$(list_users_query | grep "^${dbname}_" || true)
+        
+        if [[ -z "$db_users" ]]; then
+            log_warning "No users found for database: $dbname"
+            return 1
         fi
-    done
-    
-    log_success "All permissions applied to existing objects"
+        
+        log_info "Applying permissions to existing objects in $dbname..."
+        
+        local prefix="$dbname"
+        local roles="owner migration_user fullaccess_user app_user readonly_user"
+        
+        for role in $roles; do
+            local username="${prefix}_${role}"
+            
+            if user_exists "$username"; then
+                if [[ "$GUM_AVAILABLE" == "true" ]]; then
+                    gum spin --spinner dot --title "Granting permissions to $username..." -- \
+                        bash -c "source '${PGCTL_LIB_DIR}/permissions.sh'; grant_all_permissions '$dbname' '$username' '$role' 'public'"
+                else
+                    echo -n "Granting permissions to $username... "
+                    grant_all_permissions "$dbname" "$username" "$role" "public"
+                    echo "done"
+                fi
+                log_success "Permissions granted to $username"
+            fi
+        done
+        
+        log_success "All permissions applied to existing objects"
+    fi
 }
 
-# Audit permissions (interactive)
+# Audit permissions (interactive, supports multiselect databases)
 cmd_audit() {
     local dbname="${1:-}"
     
@@ -392,7 +440,7 @@ cmd_audit() {
         return 1
     fi
     
-    # Get database name if not provided
+    # Get database name(s) if not provided
     if [[ -z "$dbname" ]]; then
         local databases
         databases=$(list_databases_query)
@@ -402,13 +450,45 @@ cmd_audit() {
             return 1
         fi
         
-        dbname=$(prompt_select "Select database:" $databases)
+        # Use multiselect for interactive mode
+        local selected_dbs
+        selected_dbs=$(prompt_select_multiple "Select database(s):" $databases)
         
-        if [[ -z "$dbname" ]]; then
-            log_error "No database selected"
+        if [[ -z "$selected_dbs" ]]; then
+            log_error "No databases selected"
             return 1
         fi
+        
+        # Generate audit for each selected database
+        local first=true
+        while IFS= read -r db; do
+            [[ -z "$db" ]] && continue
+            
+            if ! database_exists "$db"; then
+                log_warning "Database '$db' does not exist, skipping"
+                continue
+            fi
+            
+            # Add separator between databases
+            if [[ "$first" == "false" ]]; then
+                echo ""
+                echo "========================================"
+                echo ""
+            fi
+            first=false
+            
+            _audit_one_database "$db"
+        done <<< "$selected_dbs"
+        
+    else
+        # Single database mode (CLI argument provided)
+        _audit_one_database "$dbname"
     fi
+}
+
+# Helper: Audit one database
+_audit_one_database() {
+    local dbname="$1"
     
     log_info "Database: $dbname"
     log_info "Generated: $(date)"
