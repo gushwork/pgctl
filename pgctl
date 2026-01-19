@@ -9,8 +9,15 @@
 
 set -e
 
-# Get pgctl root directory
-PGCTL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get pgctl root directory (resolve symlinks)
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+# Follow symlinks to get the real path
+while [ -L "$SCRIPT_PATH" ]; do
+  SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ $SCRIPT_PATH != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+PGCTL_ROOT="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 export PGCTL_ROOT
 
 # Source all library files

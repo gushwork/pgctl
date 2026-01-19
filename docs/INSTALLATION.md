@@ -25,7 +25,11 @@ Complete guide for installing and setting up pgctl on your system.
 Install pgctl with a single command:
 
 ```bash
+# Automatically installs to ~/.local/bin (no sudo required)
 curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash
+
+# Or specify global installation (requires sudo)
+curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash -s -- --global
 ```
 
 Then run the setup:
@@ -51,21 +55,21 @@ pgctl  # Interactive menu
 Install pgctl directly from GitHub using curl:
 
 ```bash
-# Interactive installation (shows menu)
+# Simple installation (automatically chooses user installation)
 curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash
 
-# Global installation (requires sudo)
+# Global installation (requires sudo, available to all users)
 curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash -s -- --global
 
-# User installation (no sudo required)
+# User installation (explicit, no sudo required)
 curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash -s -- --user
 ```
 
 This will:
 - Clone the repository to `~/.pgctl`
-- Show an interactive menu to choose installation method
-- Create a symlink in `/usr/local/bin` or `~/.local/bin`
-- Make `pgctl` available system-wide
+- Install to `~/.local/bin` (user) or `/usr/local/bin` (global)
+- Create a symlink to make `pgctl` available from anywhere
+- When piped from curl, defaults to user installation (safer, no sudo)
 
 #### Custom Remote Installation
 
@@ -85,7 +89,7 @@ PGCTL_REPO_BRANCH=develop curl -o- https://raw.githubusercontent.com/gushwork/pg
 **Environment Variables:**
 - `PGCTL_DIR` - Installation directory (default: `~/.pgctl`)
 - `PGCTL_REPO_URL` - Repository URL (default: `https://github.com/gushwork/pgctl.git`)
-- `PGCTL_REPO_BRANCH` - Branch to clone (default: `main`)
+- `PGCTL_REPO_BRANCH` - Branch to clone (default: `master`)
 
 ### Local Installation
 

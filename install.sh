@@ -381,7 +381,7 @@ main() {
     
     # Display header
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║   pgctl Installation                  ║${NC}"
+    echo -e "${BLUE}║   pgctl Installation                   ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
     echo ""
     
@@ -405,33 +405,45 @@ main() {
     # Check prerequisites
     check_prerequisites "$pgctl_root"
     
-    # If no installation method specified, show menu
+    # If no installation method specified, show menu or auto-select
     if [[ -z "$install_type" ]]; then
-        echo ""
-        echo "Choose installation method:"
-        echo ""
-        echo "  1) Global (/usr/local/bin) - requires sudo, available to all users"
-        echo "  2) User (~/.local/bin) - no sudo, current user only"
-        echo "  3) Cancel"
-        echo ""
-        read -p "Enter choice [1-3]: " choice
-        
-        case "$choice" in
-            1)
-                install_type="global"
-                ;;
-            2)
-                install_type="user"
-                ;;
-            3)
-                log_info "Installation cancelled"
-                exit 0
-                ;;
-            *)
-                log_error "Invalid choice"
-                exit 1
-                ;;
-        esac
+        # Check if stdin is connected to a terminal
+        if [[ ! -t 0 ]]; then
+            # Not connected to terminal (piped from curl), default to user installation
+            log_warning "No installation method specified and stdin is not a terminal"
+            log_info "Defaulting to user installation (~/.local/bin)"
+            log_info "To use global installation, run:"
+            echo "    curl -o- https://raw.githubusercontent.com/gushwork/pgctl/refs/tags/latest/install.sh | bash -s -- --global"
+            echo ""
+            install_type="user"
+        else
+            # Interactive menu
+            echo ""
+            echo "Choose installation method:"
+            echo ""
+            echo "  1) Global (/usr/local/bin) - requires sudo, available to all users"
+            echo "  2) User (~/.local/bin) - no sudo, current user only"
+            echo "  3) Cancel"
+            echo ""
+            read -p "Enter choice [1-3]: " choice
+            
+            case "$choice" in
+                1)
+                    install_type="global"
+                    ;;
+                2)
+                    install_type="user"
+                    ;;
+                3)
+                    log_info "Installation cancelled"
+                    exit 0
+                    ;;
+                *)
+                    log_error "Invalid choice"
+                    exit 1
+                    ;;
+            esac
+        fi
     fi
     
     echo ""
@@ -448,7 +460,7 @@ main() {
     
     echo ""
     echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║   Installation Complete!              ║${NC}"
+    echo -e "${GREEN}║   Installation Complete!               ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
     echo ""
     log_info "Try running: pgctl --version"
