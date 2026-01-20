@@ -36,8 +36,16 @@ load_config() {
     PGHOST="${PGHOST:-localhost}"
     PGPORT="${PGPORT:-5432}"
     PGADMIN="${PGADMIN:-postgres}"
+    PGDATABASE="${PGDATABASE:-postgres}"
     PG_MAX_IDENTIFIER_LENGTH="${PG_MAX_IDENTIFIER_LENGTH:-63}"
     PG_TEST_DATABASE="${PG_TEST_DATABASE:-pgctl_test}"
+    
+    # Initialize SSL environment variables (used by execute_psql function)
+    PGSSLMODE="${PGSSLMODE:-}"
+    PGSSLROOTCERT="${PGSSLROOTCERT:-}"
+    PGSSLCERT="${PGSSLCERT:-}"
+    PGSSLKEY="${PGSSLKEY:-}"
+    PGSSLCRL="${PGSSLCRL:-}"
 }
 
 # Initialize configuration
@@ -401,28 +409,62 @@ get_password() {
 # Database Connection Functions
 # =============================================================================
 
+# Unified psql execution function that handles all connection parameters
+# This function centralizes all PostgreSQL connection logic including SSL settings
+execute_psql() {
+    local sql="$1"
+    local database="${2:-$PGDATABASE}"
+    local mode="${3:-normal}"
+    
+    # Set environment variables for this execution
+    local psql_env=(
+        PGPASSWORD="${PGPASSWORD:-}"
+    )
+    
+    # Add SSL environment variables if they are set
+    [[ -n "${PGSSLMODE:-}" ]] && psql_env+=("PGSSLMODE=$PGSSLMODE")
+    [[ -n "${PGSSLROOTCERT:-}" ]] && psql_env+=("PGSSLROOTCERT=$PGSSLROOTCERT")
+    [[ -n "${PGSSLCERT:-}" ]] && psql_env+=("PGSSLCERT=$PGSSLCERT")
+    [[ -n "${PGSSLKEY:-}" ]] && psql_env+=("PGSSLKEY=$PGSSLKEY")
+    [[ -n "${PGSSLCRL:-}" ]] && psql_env+=("PGSSLCRL=$PGSSLCRL")
+    
+    # Execute based on mode - using env to pass variables avoids eval issues
+    case "$mode" in
+        quiet)
+            env "${psql_env[@]}" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -d "$database" -c "$sql" > /dev/null 2>&1
+            ;;
+        file)
+            env "${psql_env[@]}" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -d "$database" -f "$sql" 2>&1
+            ;;
+        *)
+            # Normal mode - return output
+            env "${psql_env[@]}" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -d "$database" -c "$sql" 2>&1
+            ;;
+    esac
+}
+
 # Execute SQL as admin
 psql_admin() {
     local sql="$1"
-    local database="${2:-postgres}"
+    local database="${2:-$PGDATABASE}"
     
-    PGPASSWORD="${PGPASSWORD:-}" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -d "$database" -c "$sql" 2>&1
+    execute_psql "$sql" "$database" "normal"
 }
 
 # Execute SQL as admin, return exit code only
 psql_admin_quiet() {
     local sql="$1"
-    local database="${2:-postgres}"
+    local database="${2:-$PGDATABASE}"
     
-    PGPASSWORD="${PGPASSWORD:-}" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -d "$database" -c "$sql" > /dev/null 2>&1
+    execute_psql "$sql" "$database" "quiet"
 }
 
 # Execute SQL file as admin
 psql_admin_file() {
     local file="$1"
-    local database="${2:-postgres}"
+    local database="${2:-$PGDATABASE}"
     
-    PGPASSWORD="${PGPASSWORD:-}" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -d "$database" -f "$file" 2>&1
+    execute_psql "$file" "$database" "file"
 }
 
 # Check database connection

@@ -52,6 +52,19 @@ parse_connection_args() {
                 export PGPASSWORD="$2"
                 shift 2
                 ;;
+
+            --sslmode|-s)
+                export PGSSLMODE="$2"
+                shift 2
+                ;;
+            --sslrootcert|-r)
+                export PGSSLROOTCERT="$2"
+                shift 2
+                ;;
+            --database|-d)
+                export PGDATABASE="$2"
+                shift 2
+                ;;
             *)
                 # Return remaining args
                 echo "$@"

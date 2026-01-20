@@ -83,7 +83,7 @@ create_database() {
     # Create database
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating database $dbname..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'CREATE DATABASE $dbname;' > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE DATABASE $dbname;\""
     else
         echo -n "Creating database $dbname... "
         psql_admin_quiet "CREATE DATABASE $dbname;"
@@ -93,7 +93,7 @@ create_database() {
     # Create owner user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $owner..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $owner WITH LOGIN PASSWORD '$owner_pass' CREATEDB CREATEROLE;\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $owner WITH LOGIN PASSWORD '$owner_pass' CREATEDB CREATEROLE;\""
     else
         echo -n "Creating $owner... "
         psql_admin_quiet "CREATE ROLE $owner WITH LOGIN PASSWORD '$owner_pass' CREATEDB CREATEROLE;"
@@ -103,7 +103,7 @@ create_database() {
     # Set database ownership
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Setting database ownership..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'ALTER DATABASE $dbname OWNER TO $owner;' > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"ALTER DATABASE $dbname OWNER TO $owner;\""
     else
         echo -n "Setting database ownership... "
         psql_admin_quiet "ALTER DATABASE $dbname OWNER TO $owner;"
@@ -113,7 +113,7 @@ create_database() {
     # Create migration user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $migration..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $migration WITH LOGIN PASSWORD '$migration_pass';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $migration WITH LOGIN PASSWORD '$migration_pass';\""
     else
         echo -n "Creating $migration... "
         psql_admin_quiet "CREATE ROLE $migration WITH LOGIN PASSWORD '$migration_pass';"
@@ -123,7 +123,7 @@ create_database() {
     # Create fullaccess user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $fullaccess..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $fullaccess WITH LOGIN PASSWORD '$fullaccess_pass';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $fullaccess WITH LOGIN PASSWORD '$fullaccess_pass';\""
     else
         echo -n "Creating $fullaccess... "
         psql_admin_quiet "CREATE ROLE $fullaccess WITH LOGIN PASSWORD '$fullaccess_pass';"
@@ -133,7 +133,7 @@ create_database() {
     # Create app user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $app..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $app WITH LOGIN PASSWORD '$app_pass';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $app WITH LOGIN PASSWORD '$app_pass';\""
     else
         echo -n "Creating $app... "
         psql_admin_quiet "CREATE ROLE $app WITH LOGIN PASSWORD '$app_pass';"
@@ -143,7 +143,7 @@ create_database() {
     # Create readonly user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $readonly..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $readonly WITH LOGIN PASSWORD '$readonly_pass';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $readonly WITH LOGIN PASSWORD '$readonly_pass';\""
     else
         echo -n "Creating $readonly... "
         psql_admin_quiet "CREATE ROLE $readonly WITH LOGIN PASSWORD '$readonly_pass';"
@@ -229,7 +229,7 @@ _delete_one_database() {
     # Terminate existing connections
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Terminating connections to $dbname..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbname' AND pid <> pg_backend_pid();\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbname' AND pid <> pg_backend_pid();\""
     else
         echo -n "Terminating connections to $dbname... "
         psql_admin_quiet "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbname' AND pid <> pg_backend_pid();"
@@ -238,7 +238,7 @@ _delete_one_database() {
     # Delete database
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Deleting database $dbname..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP DATABASE IF EXISTS $dbname;' > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"DROP DATABASE IF EXISTS $dbname;\""
     else
         echo -n "Deleting database $dbname... "
         psql_admin_quiet "DROP DATABASE IF EXISTS $dbname;"
@@ -251,7 +251,7 @@ _delete_one_database() {
         if user_exists "$user"; then
             if [[ "$GUM_AVAILABLE" == "true" ]]; then
                 gum spin --spinner dot --title "Deleting user $user..." -- \
-                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE IF EXISTS $user;' > /dev/null 2>&1"
+                    bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"DROP ROLE IF EXISTS $user;\""
             else
                 echo -n "Deleting user $user... "
                 psql_admin_quiet "DROP ROLE IF EXISTS $user;"

@@ -141,7 +141,7 @@ Future objects: $(if $apply_future; then echo "Yes"; else echo "No"; fi)"
     # Create user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating user $username..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $username WITH LOGIN PASSWORD '$password';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $username WITH LOGIN PASSWORD '$password';\""
     else
         echo -n "Creating user $username... "
         psql_admin_quiet "CREATE ROLE $username WITH LOGIN PASSWORD '$password';"
@@ -518,7 +518,7 @@ change_user_password() {
     # Change password
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Changing password..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"ALTER ROLE $username WITH PASSWORD '$password';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"ALTER ROLE $username WITH PASSWORD '$password';\""
     else
         echo -n "Changing password... "
         psql_admin_quiet "ALTER ROLE $username WITH PASSWORD '$password';"
@@ -706,11 +706,11 @@ delete_user() {
             
             if [[ "$GUM_AVAILABLE" == "true" ]]; then
                 drop_output=$(gum spin --spinner dot --title "Deleting user $user..." -- \
-                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE $user;' 2>&1")
+                    bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin \"DROP ROLE $user;\"")
                 drop_result=$?
             else
                 echo -n "Deleting user $user... "
-                drop_output=$(PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -c "DROP ROLE $user;" 2>&1)
+                drop_output=$(psql_admin "DROP ROLE $user;")
                 drop_result=$?
             fi
             
@@ -776,11 +776,11 @@ delete_user() {
         
         if [[ "$GUM_AVAILABLE" == "true" ]]; then
             drop_output=$(gum spin --spinner dot --title "Deleting user $username..." -- \
-                bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE $username;' 2>&1")
+                bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin \"DROP ROLE $username;\"")
             drop_result=$?
         else
             echo -n "Deleting user $username... "
-            drop_output=$(PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGADMIN" -c "DROP ROLE $username;" 2>&1)
+            drop_output=$(psql_admin "DROP ROLE $username;")
             drop_result=$?
         fi
         

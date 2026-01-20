@@ -42,7 +42,7 @@ _create_schema_in_db() {
     # Create schema owner user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $owner..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $owner WITH LOGIN PASSWORD '$owner_pass';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $owner WITH LOGIN PASSWORD '$owner_pass';\""
     else
         echo -n "Creating $owner... "
         psql_admin_quiet "CREATE ROLE $owner WITH LOGIN PASSWORD '$owner_pass';"
@@ -52,7 +52,7 @@ _create_schema_in_db() {
     # Create schema
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating schema $schemaname..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -d '$dbname' -c 'CREATE SCHEMA $schemaname AUTHORIZATION $owner;' > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE SCHEMA $schemaname AUTHORIZATION $owner;\" \"$dbname\""
     else
         echo -n "Creating schema $schemaname... "
         psql_admin_quiet "CREATE SCHEMA $schemaname AUTHORIZATION $owner;" "$dbname"
@@ -65,7 +65,7 @@ _create_schema_in_db() {
     # Create migration user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $migration..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $migration WITH LOGIN PASSWORD '$migration_pass';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $migration WITH LOGIN PASSWORD '$migration_pass';\""
     else
         echo -n "Creating $migration... "
         psql_admin_quiet "CREATE ROLE $migration WITH LOGIN PASSWORD '$migration_pass';"
@@ -75,7 +75,7 @@ _create_schema_in_db() {
     # Create fullaccess user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $fullaccess..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $fullaccess WITH LOGIN PASSWORD '$fullaccess_pass';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $fullaccess WITH LOGIN PASSWORD '$fullaccess_pass';\""
     else
         echo -n "Creating $fullaccess... "
         psql_admin_quiet "CREATE ROLE $fullaccess WITH LOGIN PASSWORD '$fullaccess_pass';"
@@ -85,7 +85,7 @@ _create_schema_in_db() {
     # Create app user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $app..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $app WITH LOGIN PASSWORD '$app_pass';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $app WITH LOGIN PASSWORD '$app_pass';\""
     else
         echo -n "Creating $app... "
         psql_admin_quiet "CREATE ROLE $app WITH LOGIN PASSWORD '$app_pass';"
@@ -95,7 +95,7 @@ _create_schema_in_db() {
     # Create readonly user
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Creating $readonly..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $readonly WITH LOGIN PASSWORD '$readonly_pass';\" > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $readonly WITH LOGIN PASSWORD '$readonly_pass';\""
     else
         echo -n "Creating $readonly... "
         psql_admin_quiet "CREATE ROLE $readonly WITH LOGIN PASSWORD '$readonly_pass';"
@@ -411,7 +411,7 @@ _delete_one_schema() {
     # Delete schema with CASCADE
     if [[ "$GUM_AVAILABLE" == "true" ]]; then
         gum spin --spinner dot --title "Deleting schema $schemaname..." -- \
-            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -d '$dbname' -c 'DROP SCHEMA IF EXISTS $schemaname CASCADE;' > /dev/null 2>&1"
+            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"DROP SCHEMA IF EXISTS $schemaname CASCADE;\" \"$dbname\""
     else
         echo -n "Deleting schema $schemaname... "
         psql_admin_quiet "DROP SCHEMA IF EXISTS $schemaname CASCADE;" "$dbname"
@@ -426,7 +426,7 @@ _delete_one_schema() {
         if user_exists "$user"; then
             if [[ "$GUM_AVAILABLE" == "true" ]]; then
                 gum spin --spinner dot --title "Deleting user $user..." -- \
-                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c 'DROP ROLE IF EXISTS $user;' > /dev/null 2>&1"
+                    bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"DROP ROLE IF EXISTS $user;\""
             else
                 echo -n "Deleting user $user... "
                 psql_admin_quiet "DROP ROLE IF EXISTS $user;"
@@ -969,7 +969,7 @@ add_schema_users() {
                     
                     if [[ "$GUM_AVAILABLE" == "true" ]]; then
                         gum spin --spinner dot --title "Creating $username..." -- \
-                            bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $username WITH LOGIN PASSWORD '$password';\" > /dev/null 2>&1"
+                            bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $username WITH LOGIN PASSWORD '$password';\""
                     else
                         echo -n "Creating $username... "
                         psql_admin_quiet "CREATE ROLE $username WITH LOGIN PASSWORD '$password';"
@@ -1155,7 +1155,7 @@ Status: Ready"
             
             if [[ "$GUM_AVAILABLE" == "true" ]]; then
                 gum spin --spinner dot --title "Creating $username..." -- \
-                    bash -c "PGPASSWORD='$PGPASSWORD' psql -h '$PGHOST' -p '$PGPORT' -U '$PGADMIN' -c \"CREATE ROLE $username WITH LOGIN PASSWORD '$password';\" > /dev/null 2>&1"
+                    bash -c "source '${PGCTL_LIB_DIR}/common.sh'; psql_admin_quiet \"CREATE ROLE $username WITH LOGIN PASSWORD '$password';\""
             else
                 echo -n "Creating $username... "
                 psql_admin_quiet "CREATE ROLE $username WITH LOGIN PASSWORD '$password';"
